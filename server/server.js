@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import fs from 'fs';
+import nodemailer from 'nodemailer';
 
 import User from './models/User.js';
 import Booking from './models/Booking.js';
@@ -92,6 +93,37 @@ const checkAndDeactivateProviders = async () => {
   }
 };
 
+// Generic email sender helper using Nodemailer (Gmail / SMTP)
+const sendEmailNotification = async (to, subject, html) => {
+  const emailUser = process.env.EMAIL_USER;
+  const emailPass = process.env.EMAIL_PASS;
+
+  if (!emailUser || !emailPass) {
+    console.log(`✉️ [Mock Send] To: ${to} | Subject: ${subject}`);
+    return;
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: emailUser,
+        pass: emailPass
+      }
+    });
+
+    await transporter.sendMail({
+      from: `"ServiceHub" <${emailUser}>`,
+      to,
+      subject,
+      html
+    });
+    console.log(`✉️ Email successfully sent to ${to}`);
+  } catch (err) {
+    console.error('❌ Failed to send email via nodemailer:', err.message);
+  }
+};
+
 // Create a notification in the DB and send an automated email to the user
 const createAndSendNotification = async ({ userId, title, message, type, bookingId }) => {
   try {
@@ -101,39 +133,26 @@ const createAndSendNotification = async ({ userId, title, message, type, booking
     const user = await User.findById(userId);
     if (!user || !user.email) return notif;
 
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (apiKey) {
-      const emailHtml = `
-        <div style="font-family: 'Inter', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #f3f4f6; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <h2 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">ServiceHub Notification</h2>
-            <div style="height: 4px; width: 60px; background-color: #6366f1; margin: 8px auto 0 auto; border-radius: 2px;"></div>
-          </div>
-          
-          <div style="background-color: #f9fafb; border-radius: 12px; padding: 20px; border: 1px solid #f3f4f6; margin-bottom: 24px;">
-            <p style="font-size: 16px; font-weight: 700; color: #111827; margin-top: 0; margin-bottom: 8px;">${title}</p>
-            <p style="font-size: 14px; color: #4b5563; line-height: 1.6; margin: 0;">${message}</p>
-          </div>
-          
-          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">
-            Sent automatically by ServiceHub. Please do not reply directly to this email.
-          </p>
+    const emailHtml = `
+      <div style="font-family: 'Inter', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #f3f4f6; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+        <div style="text-align: center; margin-bottom: 24px;">
+          <h2 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">ServiceHub Notification</h2>
+          <div style="height: 4px; width: 60px; background-color: #6366f1; margin: 8px auto 0 auto; border-radius: 2px;"></div>
         </div>
-      `;
+        
+        <div style="background-color: #f9fafb; border-radius: 12px; padding: 20px; border: 1px solid #f3f4f6; margin-bottom: 24px;">
+          <p style="font-size: 16px; font-weight: 700; color: #111827; margin-top: 0; margin-bottom: 8px;">${title}</p>
+          <p style="font-size: 14px; color: #4b5563; line-height: 1.6; margin: 0;">${message}</p>
+        </div>
+        
+        <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">
+          Sent automatically by ServiceHub. Please do not reply directly to this email.
+        </p>
+      </div>
+    `;
 
-      fetch('https://api.lovable.dev/v1/email/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          to: user.email,
-          subject: `[ServiceHub] ${title}`,
-          html: emailHtml,
-        }),
-      }).catch(err => console.error('Lovable email notify error:', err));
-    }
+    // Send email using Nodemailer helper
+    await sendEmailNotification(user.email, `[ServiceHub] ${title}`, emailHtml);
     return notif;
   } catch (err) {
     console.error('Error in createAndSendNotification:', err);
@@ -767,36 +786,22 @@ app.post('/api/contact', async (req, res) => {
 
     console.log(`[Contact Submission] from ${name} (${email}): ${subject}`);
     
-    // Direct call Lovable email sender if LOVABLE_API_KEY is configured
-    const apiKey = process.env.LOVABLE_API_KEY;
-    if (apiKey) {
-      const emailHtml = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #1a1a1a;">New Contact Form Submission - ServiceHub</h2>
-          <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; margin: 16px 0;">
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Subject:</strong> ${subject}</p>
-            <p><strong>Message:</strong></p>
-            <p style="white-space: pre-wrap;">${message}</p>
-          </div>
-          <p style="color: #666; font-size: 12px;">Sent from ServiceHub contact form</p>
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #1a1a1a;">New Contact Form Submission - ServiceHub</h2>
+        <div style="background: #f5f5f5; border-radius: 8px; padding: 20px; margin: 16px 0;">
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Subject:</strong> ${subject}</p>
+          <p><strong>Message:</strong></p>
+          <p style="white-space: pre-wrap;">${message}</p>
         </div>
-      `;
-      fetch('https://api.lovable.dev/v1/email/send', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          to: 'velr012006@gmail.com',
-          subject: `[ServiceHub Contact] ${subject}`,
-          html: emailHtml,
-          replyTo: email,
-        }),
-      }).catch(err => console.error('Lovable email notify error:', err));
-    }
+        <p style="color: #666; font-size: 12px;">Sent from ServiceHub contact form</p>
+      </div>
+    `;
+
+    // Send contact submission notification using custom transporter helper
+    await sendEmailNotification('velr012006@gmail.com', `[ServiceHub Contact] ${subject}`, emailHtml);
 
     res.json({ success: true });
   } catch (err) {
