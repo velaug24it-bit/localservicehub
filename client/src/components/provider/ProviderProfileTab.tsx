@@ -175,17 +175,19 @@ const ProviderProfileTab = ({ user }: Props) => {
           </div>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
           <input placeholder="Service name" value={newService.name}
             onChange={e => setNewService(p => ({ ...p, name: e.target.value }))}
-            className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none text-sm" />
-          <input placeholder="Price (₹)" value={newService.price}
-            onChange={e => setNewService(p => ({ ...p, price: e.target.value }))}
-            className="w-28 px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none text-sm" />
-          <button onClick={addService}
-            className="px-4 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity">
-            + Add
-          </button>
+            className="flex-1 px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none text-sm w-full" />
+          <div className="flex gap-2 sm:w-auto w-full shrink-0">
+            <input placeholder="Price (₹)" value={newService.price}
+              onChange={e => setNewService(p => ({ ...p, price: e.target.value }))}
+              className="w-28 sm:w-32 flex-1 sm:flex-none px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none text-sm" />
+            <button onClick={addService}
+              className="px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity shrink-0 flex items-center justify-center">
+              + Add
+            </button>
+          </div>
         </div>
       </div>
 
