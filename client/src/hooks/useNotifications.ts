@@ -33,6 +33,15 @@ export function useNotifications() {
     }
   }, [user]);
 
+  // Request notification permission on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission().catch(err => console.warn('Notification permission request failed', err));
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setItems([]);
@@ -51,6 +60,17 @@ export function useNotifications() {
               
               newItems.forEach((n: any) => {
                 toast(n.title, { description: n.message });
+                // Browser Push Notification
+                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                  try {
+                    new window.Notification(n.title, {
+                      body: n.message,
+                      icon: '/favicon.ico',
+                    });
+                  } catch (err) {
+                    console.warn('Failed to show push notification:', err);
+                  }
+                }
               });
               
               return data as Notification[];

@@ -92,6 +92,54 @@ const checkAndDeactivateProviders = async () => {
   }
 };
 
+// Create a notification in the DB and send an automated email to the user
+const createAndSendNotification = async ({ userId, title, message, type, bookingId }) => {
+  try {
+    const notif = new Notification({ userId, title, message, type, bookingId });
+    await notif.save();
+
+    const user = await User.findById(userId);
+    if (!user || !user.email) return notif;
+
+    const apiKey = process.env.LOVABLE_API_KEY;
+    if (apiKey) {
+      const emailHtml = `
+        <div style="font-family: 'Inter', system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #f3f4f6; border-radius: 16px; background-color: #ffffff; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <h2 style="color: #4f46e5; margin: 0; font-size: 24px; font-weight: 800;">ServiceHub Notification</h2>
+            <div style="height: 4px; width: 60px; background-color: #6366f1; margin: 8px auto 0 auto; border-radius: 2px;"></div>
+          </div>
+          
+          <div style="background-color: #f9fafb; border-radius: 12px; padding: 20px; border: 1px solid #f3f4f6; margin-bottom: 24px;">
+            <p style="font-size: 16px; font-weight: 700; color: #111827; margin-top: 0; margin-bottom: 8px;">${title}</p>
+            <p style="font-size: 14px; color: #4b5563; line-height: 1.6; margin: 0;">${message}</p>
+          </div>
+          
+          <p style="font-size: 12px; color: #9ca3af; text-align: center; margin: 0;">
+            Sent automatically by ServiceHub. Please do not reply directly to this email.
+          </p>
+        </div>
+      `;
+
+      fetch('https://api.lovable.dev/v1/email/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          to: user.email,
+          subject: `[ServiceHub] ${title}`,
+          html: emailHtml,
+        }),
+      }).catch(err => console.error('Lovable email notify error:', err));
+    }
+    return notif;
+  } catch (err) {
+    console.error('Error in createAndSendNotification:', err);
+  }
+};
+
 // --- AUTH API ---
 
 // Signup
@@ -343,27 +391,24 @@ app.post('/api/bookings', auth, async (req, res) => {
     await booking.save();
 
     // Create notification for Provider
-    // (If providerId is a valid ObjectId, create DB notification)
     if (mongoose.Types.ObjectId.isValid(providerId)) {
-      const pNotif = new Notification({
+      await createAndSendNotification({
         userId: providerId,
         title: '🎉 New Booking Received',
         message: `${customerName || 'A customer'} booked ${serviceType} on ${date} at ${time}`,
         type: 'booking_new',
         bookingId: booking.id
       });
-      await pNotif.save().catch(err => console.warn('Provider notification failed', err));
     }
 
     // Create notification for Customer
-    const cNotif = new Notification({
+    await createAndSendNotification({
       userId: req.userId,
       title: '✅ Booking Confirmed',
       message: `Your booking with ${providerName} is confirmed for ${date} at ${time}. Tracking: ${trackingId}`,
       type: 'booking_confirmed',
       bookingId: booking.id
     });
-    await cNotif.save().catch(err => console.warn('Customer notification failed', err));
 
     res.status(201).json(booking);
   } catch (err) {
@@ -387,14 +432,13 @@ app.put('/api/bookings/:id', auth, async (req, res) => {
 
     // Notify customer when provider updates status
     if (status && booking.userId !== req.userId) {
-      const notif = new Notification({
+      await createAndSendNotification({
         userId: booking.userId,
         title: `📦 Booking ${status}`,
         message: `${booking.providerName} updated your ${booking.serviceType} booking to "${status}"`,
         type: 'booking_status',
         bookingId: booking.id
       });
-      await notif.save().catch(err => console.warn('Status notification failed', err));
     }
 
     res.json(booking);
@@ -415,14 +459,13 @@ app.put('/api/bookings/:id/cancel', auth, async (req, res) => {
 
     // Notify provider if user cancelled
     if (booking.userId === req.userId && mongoose.Types.ObjectId.isValid(booking.providerId)) {
-      const notif = new Notification({
+      await createAndSendNotification({
         userId: booking.providerId,
         title: '✕ Booking Cancelled',
         message: `${booking.customerName} cancelled the booking for ${booking.serviceType} on ${booking.date}`,
         type: 'booking_cancelled',
         bookingId: booking.id
       });
-      await notif.save().catch(err => console.warn('Cancel notification failed', err));
     }
 
     res.json(booking);
@@ -443,14 +486,13 @@ app.put('/api/bookings/:id/pay', auth, async (req, res) => {
 
     // Notify provider that payment is confirmed
     if (mongoose.Types.ObjectId.isValid(booking.providerId)) {
-      const notif = new Notification({
+      await createAndSendNotification({
         userId: booking.providerId,
         title: '💰 Payment Confirmed',
         message: `${booking.customerName} has marked payment of ${booking.price} as Paid.`,
         type: 'booking_payment',
         bookingId: booking.id
       });
-      await notif.save().catch(err => console.warn('Payment notification failed', err));
     }
 
     res.json(booking);
