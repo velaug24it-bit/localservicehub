@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
+import fs from 'fs';
 
 import User from './models/User.js';
 import Booking from './models/Booking.js';
@@ -1235,10 +1236,29 @@ app.get('/api/admin/pricing-logs', auth, adminOnly, async (req, res) => {
 
 // Serve React build static assets in production
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../client/dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../client/dist/index.html'));
-  });
+  const distPath = path.join(__dirname, '../client/dist');
+  if (fs.existsSync(path.join(distPath, 'index.html'))) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    // Fallback if client is deployed separately (e.g. Netlify)
+    app.get('/', (req, res) => {
+      res.send(`
+        <div style="font-family: system-ui, sans-serif; text-align: center; padding: 3rem; background: #fafafa; min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+          <div style="max-width: 600px; width: 100%; background: white; padding: 2.5rem; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05); border: 1px solid #e5e7eb;">
+            <h1 style="color: #4f46e5; margin-bottom: 0.5rem; font-size: 2rem; font-weight: 800; letter-spacing: -0.025em;">🚀 ServiceHub API</h1>
+            <p style="color: #4b5563; font-size: 1.125rem; margin-bottom: 1.5rem; font-weight: 500;">The backend server is active and running successfully!</p>
+            <div style="display: inline-block; background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; padding: 0.5rem 1rem; border-radius: 9999px; font-weight: 600; font-size: 0.875rem; margin-bottom: 2rem;">
+              🟢 Connected to MongoDB Atlas
+            </div>
+            <p style="color: #6b7280; font-size: 0.875rem; line-height: 1.5;">Please access the platform using your frontend application URL deployed on Netlify.</p>
+          </div>
+        </div>
+      `);
+    });
+  }
 }
 
 // Connect MongoDB and Seed default providers
