@@ -19,6 +19,18 @@ export function useNotifications() {
   const { user } = useAuth();
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('servicehub_push_enabled');
+      return saved !== 'false'; // defaults to true
+    }
+    return true;
+  });
+
+  const togglePush = useCallback((enabled: boolean) => {
+    setPushEnabled(enabled);
+    localStorage.setItem('servicehub_push_enabled', String(enabled));
+  }, []);
 
   const fetchAll = useCallback(async () => {
     if (!user) return;
@@ -33,14 +45,14 @@ export function useNotifications() {
     }
   }, [user]);
 
-  // Request notification permission on mount
+  // Request notification permission on mount (only if push is enabled)
   useEffect(() => {
-    if (typeof window !== 'undefined' && 'Notification' in window) {
+    if (pushEnabled && typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'default') {
         Notification.requestPermission().catch(err => console.warn('Notification permission request failed', err));
       }
     }
-  }, []);
+  }, [pushEnabled]);
 
   useEffect(() => {
     if (!user) {
@@ -60,8 +72,8 @@ export function useNotifications() {
               
               newItems.forEach((n: any) => {
                 toast(n.title, { description: n.message });
-                // Browser Push Notification
-                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                // Browser Push Notification (only if pushEnabled is true)
+                if (pushEnabled && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
                   try {
                     new window.Notification(n.title, {
                       body: n.message,
@@ -86,7 +98,7 @@ export function useNotifications() {
     return () => {
       clearInterval(interval);
     };
-  }, [user, fetchAll]);
+  }, [user, fetchAll, pushEnabled]);
 
   const unreadCount = items.filter((n) => !n.read).length;
 
@@ -121,5 +133,5 @@ export function useNotifications() {
     }
   };
 
-  return { items, unreadCount, loading, markAllRead, markRead, clearAll, refresh: fetchAll };
+  return { items, unreadCount, loading, markAllRead, markRead, clearAll, refresh: fetchAll, pushEnabled, togglePush };
 }

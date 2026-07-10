@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Check, Trash2, X, Eye } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Bell, Trash2, X, Eye } from 'lucide-react';
 import { useNotifications, Notification } from '@/hooks/useNotifications';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [activeDetail, setActiveDetail] = useState<Notification | null>(null);
-  const { items, unreadCount, markAllRead, markRead, clearAll } = useNotifications();
+  const { items, unreadCount, markAllRead, markRead, clearAll, pushEnabled, togglePush } = useNotifications();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -51,12 +52,13 @@ export default function NotificationBell() {
           <div className="fixed inset-0 bg-foreground/30 backdrop-blur-sm z-40 sm:hidden" onClick={() => setOpen(false)} />
 
           <div className="fixed inset-x-4 top-[10vh] max-h-[80vh] sm:absolute sm:inset-auto sm:right-0 sm:top-full sm:mt-2 w-auto sm:w-96 bg-card rounded-xl shadow-card-hover border border-border overflow-hidden animate-slide-up z-50 flex flex-col">
+            {/* Header */}
             <div className="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
               <h3 className="font-display font-bold text-foreground">Notifications</h3>
               <div className="flex items-center gap-3">
                 {items.length > 0 && (
-                  <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1">
-                    <Trash2 className="w-3.5 h-3.5" /> Clear
+                  <button onClick={clearAll} className="text-xs text-muted-foreground hover:text-destructive flex items-center gap-1 font-medium">
+                    <Trash2 className="w-3.5 h-3.5" /> Clear All
                   </button>
                 )}
                 <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground sm:hidden">
@@ -65,7 +67,22 @@ export default function NotificationBell() {
               </div>
             </div>
 
-            <div className="overflow-y-auto max-h-[60vh] sm:max-h-96">
+            {/* Toggle Push Notification Row */}
+            <div className="px-4 py-2 border-b border-border bg-muted/40 flex items-center justify-between text-xs shrink-0">
+              <span className="text-muted-foreground font-semibold">Enable Push Notifications</span>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={pushEnabled}
+                  onChange={(e) => togglePush(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-7 h-4 bg-muted-foreground/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+              </label>
+            </div>
+
+            {/* List */}
+            <div className="overflow-y-auto max-h-[50vh] sm:max-h-96">
               {items.length === 0 ? (
                 <div className="px-4 py-12 text-center text-sm text-muted-foreground">
                   <Bell className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -76,7 +93,7 @@ export default function NotificationBell() {
                   <div
                     key={n.id}
                     onClick={() => handleNotificationClick(n)}
-                    className={`w-full text-left px-4 py-3.5 border-b border-border last:border-0 hover:bg-muted/65 transition-colors cursor-pointer flex gap-3 items-start justify-between ${
+                    className={`w-full text-left px-4 py-3.5 border-b border-border last:border-0 hover:bg-muted/60 transition-colors cursor-pointer flex gap-3 items-start justify-between ${
                       !n.read ? 'bg-primary/5' : ''
                     }`}
                   >
@@ -88,7 +105,7 @@ export default function NotificationBell() {
                         {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
                       </p>
                     </div>
-                    <button className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 self-center">
+                    <button className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 self-center">
                       <Eye className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -99,9 +116,12 @@ export default function NotificationBell() {
         </>
       )}
 
-      {/* Notification Detail Modal (Full viewport center overlay) */}
-      {activeDetail && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-foreground/60 backdrop-blur-sm p-4" onClick={() => setActiveDetail(null)}>
+      {/* Notification Detail Modal using React Portals to guarantee overlay renders on top of everything without ancestor clipping */}
+      {activeDetail && createPortal(
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in"
+          onClick={() => setActiveDetail(null)}
+        >
           <div 
             className="bg-card rounded-2xl border border-border shadow-card-hover max-w-md w-full overflow-hidden animate-slide-up"
             onClick={e => e.stopPropagation()}
@@ -136,7 +156,8 @@ export default function NotificationBell() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
