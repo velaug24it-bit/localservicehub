@@ -196,28 +196,30 @@ const ProviderProfileTab = ({ user }: Props) => {
 
         <div className="space-y-3">
           {DAYS.map(day => (
-            <div key={day} className="flex items-center gap-3">
-              <button onClick={() => toggleDay(day)}
-                className={`w-8 h-8 rounded-full text-xs font-bold transition-all flex items-center justify-center ${
-                  availability[day]?.enabled
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground'
-                }`}>
-                {day.slice(0, 2)}
-              </button>
-              <span className="w-24 text-sm font-medium text-foreground">{day}</span>
+            <div key={day} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 py-2.5 border-b border-border/60 last:border-0 sm:border-b-0">
+              <div className="flex items-center gap-3">
+                <button onClick={() => toggleDay(day)}
+                  className={`w-8 h-8 rounded-full text-xs font-bold transition-all flex items-center justify-center shrink-0 ${
+                    availability[day]?.enabled
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-muted-foreground'
+                  }`}>
+                  {day.slice(0, 2)}
+                </button>
+                <span className="w-24 text-sm font-medium text-foreground">{day}</span>
+              </div>
               {availability[day]?.enabled ? (
-                <div className="flex items-center gap-2 text-sm">
+                <div className="flex items-center gap-2 text-sm pl-11 sm:pl-0">
                   <input type="time" value={availability[day].start}
                     onChange={e => updateTime(day, 'start', e.target.value)}
-                    className="px-2 py-1.5 rounded-md border border-border bg-background text-foreground text-sm" />
-                  <span className="text-muted-foreground">to</span>
+                    className="px-2 py-1 rounded-md border border-border bg-background text-foreground text-xs sm:text-sm w-28 sm:w-auto" />
+                  <span className="text-muted-foreground text-xs">to</span>
                   <input type="time" value={availability[day].end}
                     onChange={e => updateTime(day, 'end', e.target.value)}
-                    className="px-2 py-1.5 rounded-md border border-border bg-background text-foreground text-sm" />
+                    className="px-2 py-1 rounded-md border border-border bg-background text-foreground text-xs sm:text-sm w-28 sm:w-auto" />
                 </div>
               ) : (
-                <span className="text-sm text-muted-foreground italic">Day off</span>
+                <span className="text-sm text-muted-foreground italic pl-11 sm:pl-0">Day off</span>
               )}
             </div>
           ))}

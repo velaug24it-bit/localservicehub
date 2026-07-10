@@ -262,8 +262,9 @@ const ProviderDashboard = () => {
             </div>
             <span className="text-sm font-medium text-foreground hidden sm:block">{user?.name}</span>
             <button onClick={handleLogout}
-              className="px-3 py-1.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors font-medium">
-              🚪 Logout
+              className="px-2.5 py-1.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors font-medium flex items-center gap-1 shrink-0">
+              <span>🚪</span>
+              <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
