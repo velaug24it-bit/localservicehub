@@ -10,6 +10,7 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
+import https from 'https';
 
 import User from './models/User.js';
 import Booking from './models/Booking.js';
@@ -93,66 +94,77 @@ const checkAndDeactivateProviders = async () => {
   }
 };
 
-// Generic email sender helper using Nodemailer (Gmail / SMTP)
+// Generic email sender helper — uses Brevo HTTP API (works on Render free-tier)
+// Falls back to Nodemailer for local dev when BREVO_API_KEY is not set.
 const sendEmailNotification = async (to, subject, html) => {
   const brevoApiKey = process.env.BREVO_API_KEY;
-  const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS;
+  const emailUser   = process.env.EMAIL_USER;
+  const emailPass   = process.env.EMAIL_PASS;
 
-  // Use Brevo HTTP API if API key is provided (Recommended for Render free-tier)
+  console.log(`📧 sendEmailNotification called → to: ${to} | brevoKey: ${brevoApiKey ? 'SET' : 'NOT SET'} | emailUser: ${emailUser || 'NOT SET'}`);
+
+  // ── PATH 1: Brevo HTTP API (for Render / any cloud host) ──────────────────
   if (brevoApiKey) {
-    try {
-      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: {
-          'accept': 'application/json',
-          'api-key': brevoApiKey,
-          'content-type': 'application/json'
-        },
-        body: JSON.stringify({
-          sender: { name: 'ServiceHub', email: emailUser || 'noreply@servicehub.com' },
-          to: [{ email: to }],
-          subject: subject,
-          htmlContent: html
-        })
-      });
+    const senderEmail = emailUser || 'noreply@servicehub.in';
+    const payload = JSON.stringify({
+      sender:      { name: 'ServiceHub', email: senderEmail },
+      to:          [{ email: to }],
+      subject,
+      htmlContent: html
+    });
 
-      if (response.ok) {
-        console.log(`✉️ Email successfully sent via Brevo to ${to}`);
-      } else {
-        const errData = await response.json();
-        console.error('❌ Failed to send email via Brevo API:', errData);
+    const options = {
+      hostname: 'api.brevo.com',
+      path:     '/v3/smtp/email',
+      method:   'POST',
+      headers:  {
+        'Content-Type':   'application/json',
+        'Accept':         'application/json',
+        'api-key':        brevoApiKey,
+        'Content-Length': Buffer.byteLength(payload)
       }
-    } catch (err) {
-      console.error('❌ Failed to send email via Brevo API:', err.message);
-    }
-    return;
+    };
+
+    return new Promise((resolve) => {
+      const req = https.request(options, (res) => {
+        let body = '';
+        res.on('data', chunk => body += chunk);
+        res.on('end', () => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            console.log(`✅ Brevo email sent to ${to} (status ${res.statusCode})`);
+          } else {
+            console.error(`❌ Brevo API error (status ${res.statusCode}):`, body);
+          }
+          resolve();
+        });
+      });
+      req.on('error', (err) => {
+        console.error('❌ Brevo HTTPS request error:', err.message);
+        resolve();
+      });
+      req.write(payload);
+      req.end();
+    });
   }
 
-  // Fallback to Nodemailer (for local development or paid Render plans)
+  // ── PATH 2: Nodemailer / Gmail (localhost only) ────────────────────────────
   if (!emailUser || !emailPass) {
-    console.log(`✉️ [Mock Send] To: ${to} | Subject: ${subject}`);
+    console.log(`✉️  [Mock Send — no credentials] To: ${to} | Subject: ${subject}`);
     return;
   }
 
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
-      auth: {
-        user: emailUser,
-        pass: emailPass
-      }
+      auth: { user: emailUser, pass: emailPass }
     });
-
     await transporter.sendMail({
       from: `"ServiceHub" <${emailUser}>`,
-      to,
-      subject,
-      html
+      to, subject, html
     });
-    console.log(`✉️ Email successfully sent to ${to} (Nodemailer)`);
+    console.log(`✅ Email sent via Nodemailer/Gmail to ${to}`);
   } catch (err) {
-    console.error('❌ Failed to send email via nodemailer:', err.message);
+    console.error('❌ Nodemailer send failed:', err.message);
   }
 };
 
