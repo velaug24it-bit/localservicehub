@@ -441,6 +441,77 @@ app.post('/api/bookings', auth, async (req, res) => {
       razorpaySignature
     } = req.body;
 
+    // ─── SERVER-SIDE BOOKING VALIDATION ───────────────────────────────────────
+
+    // 1. Parse the selected time string (e.g. "9:00 AM") into minutes since midnight
+    const parseTimeToMinutes = (timeStr) => {
+      const [timePart, ampm] = timeStr.trim().split(' ');
+      let [hours, minutes] = timePart.split(':').map(Number);
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      return hours * 60 + (minutes || 0);
+    };
+
+    // 2. Validate that the booking date + time is not in the past (IST / UTC+5:30)
+    const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+    const nowIST = new Date(Date.now() + IST_OFFSET_MS);
+    const todayStr = nowIST.toISOString().split('T')[0];
+
+    if (date < todayStr) {
+      return res.status(400).json({ error: 'Cannot book a date in the past.' });
+    }
+
+    const selectedMinutes = parseTimeToMinutes(time);
+    if (date === todayStr) {
+      const currentMinutes = nowIST.getUTCHours() * 60 + nowIST.getUTCMinutes();
+      if (selectedMinutes < currentMinutes) {
+        return res.status(400).json({ error: 'Cannot book a time slot that has already passed today.' });
+      }
+    }
+
+    // 3. Validate provider availability (day off and working hours)
+    if (mongoose.Types.ObjectId.isValid(providerId)) {
+      const pUser = await User.findById(providerId);
+      if (pUser) {
+        const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const bookingDateObj = new Date(date + 'T00:00:00Z');
+        const dayName = DAYS[bookingDateObj.getUTCDay()];
+
+        const defaultAvailability = {
+          Monday:    { start: '09:00', end: '18:00', enabled: true },
+          Tuesday:   { start: '09:00', end: '18:00', enabled: true },
+          Wednesday: { start: '09:00', end: '18:00', enabled: true },
+          Thursday:  { start: '09:00', end: '18:00', enabled: true },
+          Friday:    { start: '09:00', end: '18:00', enabled: true },
+          Saturday:  { start: '09:00', end: '18:00', enabled: true },
+          Sunday:    { start: '09:00', end: '18:00', enabled: false }
+        };
+
+        const avail = (pUser.availability && typeof pUser.availability === 'object')
+          ? pUser.availability
+          : defaultAvailability;
+
+        const dayConfig = avail[dayName];
+
+        if (!dayConfig || !dayConfig.enabled) {
+          return res.status(400).json({ error: `${providerName} is not available on ${dayName}s.` });
+        }
+
+        const parse24h = (t) => {
+          const [h, m] = t.split(':').map(Number);
+          return h * 60 + (m || 0);
+        };
+
+        const startMin = parse24h(dayConfig.start);
+        const endMin   = parse24h(dayConfig.end);
+
+        if (selectedMinutes < startMin || selectedMinutes > endMin) {
+          return res.status(400).json({ error: `${providerName} is only available between ${dayConfig.start} and ${dayConfig.end} on ${dayName}s.` });
+        }
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     const trackingId = 'SH' + Date.now().toString().slice(-10);
 
     // Fetch provider UPI ID dynamically

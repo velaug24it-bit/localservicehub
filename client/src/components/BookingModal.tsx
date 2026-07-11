@@ -43,7 +43,7 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
   // Mock payment details
   const [mockPaying, setMockPaying] = useState(false);
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().split('T')[0];
   const times = ['9:00 AM', '10:00 AM', '11:00 AM', '2:00 PM', '3:00 PM', '4:00 PM'];
 
   // Extract base price from provider price range
@@ -58,6 +58,77 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
       toast({ title: 'Please select a date', variant: 'destructive' });
       return;
     }
+
+    // 1. Validate date & time are not in the past
+    const now = new Date();
+    const localTodayStr = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
+
+    if (date < localTodayStr) {
+      toast({ title: 'Invalid Date', description: 'You cannot book a date in the past.', variant: 'destructive' });
+      return;
+    }
+
+    // Parse selected time (e.g. '9:00 AM') into minutes from midnight
+    const parseTimeTo24h = (timeStr: string) => {
+      const [timePart, ampm] = timeStr.split(' ');
+      let [hours, minutes] = timePart.split(':').map(Number);
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+      return hours * 60 + minutes;
+    };
+
+    const selectedMinutes = parseTimeTo24h(time);
+
+    if (date === localTodayStr) {
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      if (selectedMinutes < currentMinutes) {
+        toast({ title: 'Invalid Time', description: 'You cannot book a slot in the past.', variant: 'destructive' });
+        return;
+      }
+    }
+
+    // 2. Validate provider availability (days of week and shifts)
+    const selectedDateObj = new Date(date);
+    const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayName = daysOfWeek[selectedDateObj.getDay()];
+
+    const providerAvail = provider.availability || {
+      Monday: { start: '09:00', end: '18:00', enabled: true },
+      Tuesday: { start: '09:00', end: '18:00', enabled: true },
+      Wednesday: { start: '09:00', end: '18:00', enabled: true },
+      Thursday: { start: '09:00', end: '18:00', enabled: true },
+      Friday: { start: '09:00', end: '18:00', enabled: true },
+      Saturday: { start: '09:00', end: '18:00', enabled: true },
+      Sunday: { start: '09:00', end: '18:00', enabled: false }
+    };
+
+    const dayConfig = providerAvail[dayName];
+    if (!dayConfig || !dayConfig.enabled) {
+      toast({ 
+        title: 'Provider Unavailable', 
+        description: `${provider.name} is not available on ${dayName}s.`, 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
+    const parse24hToMinutes = (time24h: string) => {
+      const [hours, minutes] = time24h.split(':').map(Number);
+      return hours * 60 + minutes;
+    };
+
+    const startMinutes = parse24hToMinutes(dayConfig.start);
+    const endMinutes = parse24hToMinutes(dayConfig.end);
+
+    if (selectedMinutes < startMinutes || selectedMinutes > endMinutes) {
+      toast({ 
+        title: 'Outside Working Hours', 
+        description: `${provider.name} is only available between ${dayConfig.start} and ${dayConfig.end} on ${dayName}s.`, 
+        variant: 'destructive' 
+      });
+      return;
+    }
+
     if (!phone || phone.trim().length < 10) {
       toast({ title: 'Please enter a valid phone number', variant: 'destructive' });
       return;

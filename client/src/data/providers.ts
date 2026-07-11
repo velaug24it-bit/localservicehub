@@ -13,6 +13,7 @@ export interface Provider {
   description: string;
   phone: string;
   email: string;
+  availability?: Record<string, { start: string; end: string; enabled: boolean }>;
 }
 
 const districts = [

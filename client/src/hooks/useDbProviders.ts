@@ -58,6 +58,7 @@ export function useDbProviders() {
                   description: `Professional service provider in ${p.location || 'Chennai'}. Book now for quality service.`,
                   phone: p.phone || '',
                   email: p.email || '',
+                  availability: p.availability,
                 };
               })
           );
