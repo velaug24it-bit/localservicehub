@@ -766,8 +766,25 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
           )}
 
           {b.status === 'Completed' && (
-            <div className="text-center text-xs text-success font-semibold pt-1 border-t border-border">
-              🎉 Job completed successfully!
+            <div className="pt-2.5 border-t border-border space-y-2">
+              <div className="text-center text-xs text-success font-semibold">
+                🎉 Job completed successfully!
+              </div>
+              {(b as any).review && (
+                <div className="bg-card border border-success/15 rounded-lg p-3 space-y-1.5 mt-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-foreground">Customer Feedback</span>
+                    <div className="flex items-center gap-0.5 text-warning font-bold">
+                      <span>★ {(b as any).review.rating}</span>
+                    </div>
+                  </div>
+                  {(b as any).review.comment && (
+                    <p className="text-xs text-muted-foreground italic bg-muted/40 p-2 rounded leading-relaxed border border-border/40">
+                      "{(b as any).review.comment}"
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

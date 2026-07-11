@@ -362,7 +362,24 @@ app.get('/api/bookings', auth, async (req, res) => {
         { providerId: req.userId }
       ]
     }).sort({ createdAt: -1 });
-    res.json(bookings);
+
+    // Fetch and attach reviews for completed bookings
+    const bookingsWithReviews = await Promise.all(bookings.map(async (b) => {
+      const bObj = b.toJSON();
+      if (b.status === 'Completed') {
+        const review = await Review.findOne({ bookingId: b.id });
+        if (review) {
+          bObj.review = {
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt
+          };
+        }
+      }
+      return bObj;
+    }));
+
+    res.json(bookingsWithReviews);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
