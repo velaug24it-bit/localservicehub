@@ -291,7 +291,7 @@ const ProviderDashboard = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
           {[
             { label: 'Total Bookings', value: stats.total, icon: '📋', color: 'bg-primary/10 text-primary' },
             { label: 'Active', value: stats.active, icon: '🔄', color: 'bg-warning/10 text-warning' },
@@ -299,7 +299,9 @@ const ProviderDashboard = () => {
             { label: 'Earnings', value: `₹${totalEarnings.toLocaleString()}`, icon: '💰', color: 'bg-info/10 text-info' },
             { label: 'Pending Pay', value: `₹${pendingPayment.toLocaleString()}`, icon: '⏳', color: 'bg-accent text-accent-foreground' },
           ].map(s => (
-            <div key={s.label} className="bg-card rounded-xl border border-border p-5 hover:shadow-card transition-all">
+            <div key={s.label} className={`bg-card rounded-xl border border-border p-5 hover:shadow-card transition-all ${
+              s.label === 'Pending Pay' ? 'col-span-2 sm:col-span-2 lg:col-span-1' : ''
+            }`}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-2xl">{s.icon}</span>
                 <span className={`text-xs font-medium px-2 py-1 rounded-full ${s.color}`}>{s.label}</span>
@@ -310,7 +312,7 @@ const ProviderDashboard = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-2xl overflow-x-auto">
+        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-2xl overflow-x-auto no-scrollbar">
           {(['bookings', 'queue', 'calendar', 'earnings', 'profile', 'subscription'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2.5 rounded-md text-sm font-semibold capitalize transition-all whitespace-nowrap px-3 ${

@@ -123,6 +123,13 @@
   .shadow-glass {
     box-shadow: var(--shadow-glass);
   }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }
 
 /* Animations */

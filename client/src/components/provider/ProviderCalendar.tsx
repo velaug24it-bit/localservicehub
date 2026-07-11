@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Clock, User, MapPin } from 'lucide-react';
 
 interface ProviderBooking {
@@ -59,6 +59,16 @@ export default function ProviderCalendar({ bookings }: Props) {
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  // Smooth scroll to the details panel when a date is selected on mobile viewports
+  useEffect(() => {
+    if (selectedDate && window.innerWidth < 1024) {
+      setTimeout(() => {
+        detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 50);
+    }
+  }, [selectedDate]);
 
   const bookingsByDate = useMemo(() => {
     const map: Record<string, ProviderBooking[]> = {};
@@ -151,7 +161,7 @@ export default function ProviderCalendar({ bookings }: Props) {
                 return (
                   <div
                     key={`blank-${idx}`}
-                    className="h-16 border-b border-r border-border/40 bg-muted/10"
+                    className="h-14 sm:h-16 border-b border-r border-border/40 bg-muted/10"
                   />
                 );
               }
@@ -165,11 +175,11 @@ export default function ProviderCalendar({ bookings }: Props) {
                 <button
                   key={dateKey}
                   onClick={() => setSelectedDate(isSelected ? null : dateKey)}
-                  className={`h-16 p-1.5 border-b border-r border-border/40 flex flex-col items-center justify-start gap-0.5 transition-all hover:bg-muted/50 ${
+                  className={`h-14 sm:h-16 p-1 sm:p-1.5 border-b border-r border-border/40 flex flex-col items-center justify-start gap-0.5 transition-all hover:bg-muted/50 ${
                     isSelected ? 'ring-2 ring-inset ring-primary bg-primary/8' : ''
                   } ${count > 0 && !isSelected ? 'bg-primary/3' : ''}`}
                 >
-                  <span className={`text-sm font-semibold w-7 h-7 flex items-center justify-center rounded-full transition-all ${
+                  <span className={`text-xs sm:text-sm font-semibold w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full transition-all ${
                     isToday
                       ? 'bg-primary text-primary-foreground shadow-sm'
                       : isSelected
@@ -182,13 +192,13 @@ export default function ProviderCalendar({ bookings }: Props) {
                   {dots.length > 0 && (
                     <div className="flex gap-0.5 justify-center">
                       {dots.map((status, i) => (
-                        <span key={i} className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[status] || 'bg-primary'}`} />
+                        <span key={i} className={`w-1 sm:w-1.5 h-1 sm:h-1.5 rounded-full ${STATUS_DOT[status] || 'bg-primary'}`} />
                       ))}
                     </div>
                   )}
 
                   {count > 0 && (
-                    <span className="text-[9px] font-bold text-primary leading-none">{count}</span>
+                    <span className="text-[8px] sm:text-[9px] font-bold text-primary leading-none">{count}</span>
                   )}
                 </button>
               );
@@ -207,7 +217,7 @@ export default function ProviderCalendar({ bookings }: Props) {
         </div>
 
         {/* ── Day Detail Panel ── */}
-        <div className="lg:col-span-2">
+        <div ref={detailRef} className="lg:col-span-2 scroll-mt-20">
           {!selectedDate ? (
             <div className="bg-card rounded-2xl border border-border shadow-sm p-10 text-center">
               <div className="text-5xl mb-3">📅</div>
