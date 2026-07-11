@@ -32,6 +32,11 @@ export interface Booking {
   advanceTransactionId?: string;
   paymentStatus?: string;
   providerUpiId?: string;
+  review?: {
+    rating: number;
+    comment?: string;
+    createdAt?: string;
+  };
 }
 
 interface AuthContextType {

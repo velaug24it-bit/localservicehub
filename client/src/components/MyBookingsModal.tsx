@@ -227,7 +227,7 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
                     ) : (
                       <div className="space-y-3 pt-2 border-t border-success/15">
                         <p className="text-xs text-muted-foreground font-semibold">Payment has been confirmed. Thank you!</p>
-                        {reviewedBookings[b.id] ? (
+                        {reviewedBookings[b.id] || b.review ? (
                           <div className="text-xs text-success font-semibold flex items-center gap-1.5 bg-success/5 p-2 rounded-lg border border-success/10">
                             ⭐ Review Submitted Successfully
                           </div>
