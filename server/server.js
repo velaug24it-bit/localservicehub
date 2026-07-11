@@ -151,8 +151,10 @@ const createAndSendNotification = async ({ userId, title, message, type, booking
       </div>
     `;
 
-    // Send email using Nodemailer helper
-    await sendEmailNotification(user.email, `[ServiceHub] ${title}`, emailHtml);
+    // Send email using Nodemailer helper in background (non-blocking)
+    sendEmailNotification(user.email, `[ServiceHub] ${title}`, emailHtml).catch(err => {
+      console.error('❌ Background email send failed:', err);
+    });
     return notif;
   } catch (err) {
     console.error('Error in createAndSendNotification:', err);
