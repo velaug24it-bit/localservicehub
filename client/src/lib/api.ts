@@ -1,4 +1,4 @@
-const BASE_URL = ''; // Handled by Vite proxy in dev, and static server in prod
+const BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' : 'https://localservicehub-mwwo.onrender.com');
 
 async function request(endpoint: string, options: RequestInit = {}) {
   const token = localStorage.getItem('servicehub_token');
