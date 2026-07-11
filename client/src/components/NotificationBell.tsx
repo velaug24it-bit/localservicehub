@@ -27,12 +27,9 @@ export default function NotificationBell() {
 
   return (
     <div className="relative" ref={ref}>
-      {/* Bell Button */}
       <button
         onClick={() => {
-          const next = !open;
-          setOpen(next);
-          if (next && unreadCount > 0) markAllRead();
+          setOpen(!open);
         }}
         className="relative p-2 rounded-lg hover:bg-muted transition-colors"
         aria-label="Notifications"
@@ -94,7 +91,7 @@ export default function NotificationBell() {
                     key={n.id}
                     onClick={() => handleNotificationClick(n)}
                     className={`w-full text-left px-4 py-3.5 border-b border-border last:border-0 hover:bg-muted/60 transition-colors cursor-pointer flex gap-3 items-start justify-between ${
-                      !n.read ? 'bg-primary/5' : ''
+                      !n.read ? 'bg-blue-50/80 dark:bg-blue-950/20' : ''
                     }`}
                   >
                     <div className="flex-1 min-w-0">
@@ -105,7 +102,14 @@ export default function NotificationBell() {
                         {!n.read && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
                       </p>
                     </div>
-                    <button className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 self-center">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (!n.read) markRead(n.id);
+                      }}
+                      className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground shrink-0 self-center"
+                      title="Mark as read"
+                    >
                       <Eye className="w-3.5 h-3.5" />
                     </button>
                   </div>
