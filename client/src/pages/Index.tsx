@@ -9,6 +9,7 @@ import MyBookingsModal from '@/components/MyBookingsModal';
 import ContactModal from '@/components/ContactModal';
 import AIDiagnosisModal from '@/components/AIDiagnosisModal';
 import NotificationBell from '@/components/NotificationBell';
+import ProviderReviewsModal from '@/components/ProviderReviewsModal';
 import ReviewsSection from '@/components/sections/ReviewsSection';
 import ContactSection from '@/components/sections/ContactSection';
 import HowItWorksSection from '@/components/sections/HowItWorksSection';
@@ -33,6 +34,7 @@ const Index = () => {
   const [contactProvider, setContactProvider] = useState<Provider | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAIDiagnosis, setShowAIDiagnosis] = useState(false);
+  const [reviewsProvider, setReviewsProvider] = useState<{ id: string; name: string } | null>(null);
 
   const allProviders = useMemo(() => {
     // DB providers first, then static ones (exclude duplicates by id)
@@ -187,9 +189,16 @@ const Index = () => {
                 </div>
                 <div className="min-w-0">
                   <div className="font-semibold text-primary-foreground text-sm truncate">{provider.name}</div>
-                  <div className="flex items-center gap-1 text-xs text-primary-foreground/70">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setReviewsProvider({ id: provider.id, name: provider.name });
+                    }}
+                    className="flex items-center gap-1 text-xs text-primary-foreground/75 hover:text-primary-foreground hover:underline transition-colors focus:outline-none"
+                    title="Click to view provider reviews"
+                  >
                     <span className="text-warning">★</span> {provider.rating} ({provider.reviews})
-                  </div>
+                  </button>
                 </div>
               </div>
               <div className="p-4">
@@ -319,6 +328,13 @@ const Index = () => {
           onBookProvider={(provider) => { setShowAIDiagnosis(false); setBookingProvider(provider); }}
           allProviders={allProviders}
           userLocation={user?.location || 'Chennai'}
+        />
+      )}
+      {reviewsProvider && (
+        <ProviderReviewsModal
+          providerId={reviewsProvider.id}
+          providerName={reviewsProvider.name}
+          onClose={() => setReviewsProvider(null)}
         />
       )}
     </div>

@@ -25,6 +25,33 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
   const [contactProvider, setContactProvider] = useState<Provider | null>(null);
   const [providerUpis, setProviderUpis] = useState<Record<string, string>>({});
+  const [rating, setRating] = useState<Record<string, number>>({});
+  const [comment, setComment] = useState<Record<string, string>>({});
+  const [reviewedBookings, setReviewedBookings] = useState<Record<string, boolean>>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('servicehub_reviewed_bookings');
+      return saved ? JSON.parse(saved) : {};
+    }
+    return {};
+  });
+
+  const submitReview = async (bookingId: string) => {
+    const stars = rating[bookingId] || 5;
+    const text = comment[bookingId] || '';
+    try {
+      await api.reviews.submit({ bookingId, rating: stars, comment: text });
+      toast({ title: 'Review Submitted', description: 'Thank you for your feedback!' });
+      setReviewedBookings(prev => {
+        const next = { ...prev, [bookingId]: true };
+        localStorage.setItem('servicehub_reviewed_bookings', JSON.stringify(next));
+        return next;
+      });
+      // Trigger a refresh so the list pulls updated data
+      await refreshBookings();
+    } catch (err: any) {
+      toast({ title: 'Failed to submit review', description: err.message, variant: 'destructive' });
+    }
+  };
 
   useEffect(() => {
     const loadProviderUpis = async () => {
@@ -198,8 +225,46 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
                         </div>
                       )
                     ) : (
-                      <div className="text-center py-2 text-xs text-muted-foreground bg-muted/40 rounded-lg">
-                        Payment has been confirmed. Thank you!
+                      <div className="space-y-3 pt-2 border-t border-success/15">
+                        <p className="text-xs text-muted-foreground font-semibold">Payment has been confirmed. Thank you!</p>
+                        {reviewedBookings[b.id] ? (
+                          <div className="text-xs text-success font-semibold flex items-center gap-1.5 bg-success/5 p-2 rounded-lg border border-success/10">
+                            ⭐ Review Submitted Successfully
+                          </div>
+                        ) : (
+                          <div className="bg-card p-3 rounded-xl border border-border space-y-3">
+                            <p className="text-xs font-bold text-foreground">Write a Review for {b.providerName}</p>
+                            
+                            {/* Rating Stars */}
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map(star => (
+                                <button
+                                  key={star}
+                                  onClick={() => setRating(prev => ({ ...prev, [b.id]: star }))}
+                                  className="text-lg focus:outline-none transition-transform hover:scale-110"
+                                >
+                                  {star <= (rating[b.id] || 5) ? '★' : '☆'}
+                                </button>
+                              ))}
+                              <span className="text-xs text-muted-foreground ml-1">({rating[b.id] || 5}/5)</span>
+                            </div>
+
+                            {/* Comment */}
+                            <textarea
+                              placeholder="Share your experience (optional)..."
+                              value={comment[b.id] || ''}
+                              onChange={(e) => setComment(prev => ({ ...prev, [b.id]: e.target.value }))}
+                              className="w-full text-xs p-2 rounded-lg border border-border bg-background text-foreground focus:ring-1 focus:ring-primary outline-none min-h-[50px] resize-none"
+                            />
+
+                            <button
+                              onClick={() => submitReview(b.id)}
+                              className="w-full py-1.5 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity"
+                            >
+                              Submit Review
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

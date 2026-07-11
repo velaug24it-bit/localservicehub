@@ -262,7 +262,24 @@ app.get('/api/providers', async (req, res) => {
   try {
     await checkAndDeactivateProviders();
     const providers = await User.find({ userType: 'provider', approved: true, isActive: true });
-    res.json(providers);
+    
+    // Attach dynamically calculated rating and reviews count
+    const providersWithRatings = await Promise.all(providers.map(async (p) => {
+      const pObj = p.toJSON();
+      const reviews = await Review.find({ providerId: p.id });
+      const totalReviews = reviews.length;
+      const avgRating = totalReviews 
+        ? +(reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews).toFixed(1)
+        : 4.5; // default fallback if no reviews
+      
+      return {
+        ...pObj,
+        rating: avgRating,
+        reviewsCount: totalReviews
+      };
+    }));
+    
+    res.json(providersWithRatings);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -315,7 +332,19 @@ app.get('/api/providers/:id', async (req, res) => {
     await checkAndDeactivateProviders();
     const provider = await User.findOne({ _id: req.params.id, userType: 'provider', approved: true, isActive: true });
     if (!provider) return res.status(404).json({ error: 'Provider not found' });
-    res.json(provider);
+    
+    const pObj = provider.toJSON();
+    const reviews = await Review.find({ providerId: provider.id });
+    const totalReviews = reviews.length;
+    const avgRating = totalReviews 
+      ? +(reviews.reduce((sum, r) => sum + r.rating, 0) / totalReviews).toFixed(1)
+      : 4.5;
+      
+    res.json({
+      ...pObj,
+      rating: avgRating,
+      reviewsCount: totalReviews
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
