@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="grad192" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#707ef4" />
+      <stop offset="100%" stop-color="#803fbc" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-opacity="0.25" flood-color="#000000" />
+    </filter>
+  </defs>
+  <rect width="192" height="192" rx="44" fill="url(#grad192)" />
+  <g filter="url(#glow)">
+    <!-- Stylized House & Service Shield Concept -->
+    <path d="M96 44 L146 84 V138 A 6 6 0 0 1 140 144 H52 A 6 6 0 0 1 46 138 V84 Z" fill="none" stroke="#ffffff" stroke-width="10" stroke-linejoin="round" />
+    <path d="M72 144 V108 A 4 4 0 0 1 76 104 H116 A 4 4 0 0 1 120 108 V144" fill="none" stroke="#ffffff" stroke-width="10" stroke-linejoin="round" />
+    <circle cx="96" cy="78" r="10" fill="#ffffff" />
+  </g>
+</svg>
