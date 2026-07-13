@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { providers, serviceCategories, districts, Provider } from '@/data/providers';
@@ -35,6 +35,58 @@ const Index = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAIDiagnosis, setShowAIDiagnosis] = useState(false);
   const [reviewsProvider, setReviewsProvider] = useState<{ id: string; name: string } | null>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // PWA install prompt capture
+  useEffect(() => {
+    // Check if already running as standalone (installed)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsAppInstalled(true);
+    }
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setDeferredPrompt(null);
+      toast({ title: '🎉 ServiceHub Installed!', description: 'You can now access the app from your home screen.' });
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    if (showUserMenu) document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [showUserMenu]);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      toast({ title: '✅ Installing ServiceHub...', description: 'The app will be added to your home screen.' });
+    }
+    setDeferredPrompt(null);
+    setShowUserMenu(false);
+  };
 
   const allProviders = useMemo(() => {
     // DB providers first, then static ones (exclude duplicates by id)
@@ -78,22 +130,52 @@ const Index = () => {
                 <button onClick={() => setShowBookings(true)} className="px-4 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors">
                   My Bookings
                 </button>
-                <div className="relative">
-                  <button onClick={() => setShowUserMenu(!showUserMenu)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors">
-                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+                <div className="relative" ref={userMenuRef}>
+                  <button
+                    id="user-profile-menu-btn"
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-muted transition-colors"
+                    aria-haspopup="true"
+                    aria-expanded={showUserMenu}
+                  >
+                    <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold ring-2 ring-primary/30 hover:ring-primary/60 transition-all">
                       {user.name.charAt(0).toUpperCase()}
                     </div>
                     <span className="text-sm font-medium text-foreground hidden sm:block">{user.name}</span>
                   </button>
                   {showUserMenu && (
-                    <div className="absolute right-0 top-full mt-1 w-48 bg-card rounded-xl shadow-card-hover border border-border py-2 animate-slide-up">
-                      <div className="px-4 py-2 text-xs text-muted-foreground border-b border-border">{user.email}</div>
-                      <button onClick={() => { setShowBookings(true); setShowUserMenu(false); }} className="w-full px-4 py-2 text-sm text-foreground text-left hover:bg-muted transition-colors">
+                    <div className="absolute right-0 top-full mt-2 w-52 bg-card rounded-xl shadow-card-hover border border-border py-2 animate-slide-up z-50">
+                      <div className="px-4 py-2.5 border-b border-border">
+                        <div className="text-sm font-semibold text-foreground truncate">{user.name}</div>
+                        <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                      </div>
+                      <button
+                        id="menu-my-bookings"
+                        onClick={() => { setShowBookings(true); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2.5 text-sm text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2"
+                      >
                         📋 My Bookings
                       </button>
-                      <button onClick={() => { logout(); setShowUserMenu(false); }} className="w-full px-4 py-2 text-sm text-destructive text-left hover:bg-muted transition-colors">
-                        🚪 Logout
-                      </button>
+                      {!isAppInstalled && deferredPrompt && (
+                        <button
+                          id="menu-install-app"
+                          onClick={handleInstallApp}
+                          className="w-full px-4 py-2.5 text-sm text-left hover:bg-accent transition-colors flex items-center gap-2 text-primary font-medium"
+                        >
+                          <span>📥</span>
+                          <span>Install App</span>
+                          <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-bold">NEW</span>
+                        </button>
+                      )}
+                      <div className="border-t border-border mt-1 pt-1">
+                        <button
+                          id="menu-logout"
+                          onClick={() => { logout(); setShowUserMenu(false); }}
+                          className="w-full px-4 py-2.5 text-sm text-destructive text-left hover:bg-muted transition-colors flex items-center gap-2"
+                        >
+                          🚪 Logout
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
