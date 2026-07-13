@@ -78,13 +78,37 @@ const Index = () => {
   }, [showUserMenu]);
 
   const handleInstallApp = async () => {
-    if (!deferredPrompt) return;
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      toast({ title: '✅ Installing ServiceHub...', description: 'The app will be added to your home screen.' });
+    if (deferredPrompt) {
+      // Native browser install prompt is available
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        toast({ title: '✅ Installing ServiceHub...', description: 'The app will be added to your home screen.' });
+      }
+      setDeferredPrompt(null);
+    } else {
+      // Fallback: guide the user based on their browser/device
+      const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      const isChrome = /chrome/i.test(navigator.userAgent) && !/edge/i.test(navigator.userAgent);
+
+      if (isIOS || isSafari) {
+        toast({
+          title: '📱 Install on iOS',
+          description: 'Tap the Share button (⎋) in Safari, then choose "Add to Home Screen".',
+        });
+      } else if (isChrome) {
+        toast({
+          title: '💻 Install ServiceHub',
+          description: 'Click the install icon (⊕) in the browser address bar, or open Chrome menu → "Install ServiceHub".',
+        });
+      } else {
+        toast({
+          title: '📲 Install ServiceHub',
+          description: 'Open your browser menu and look for "Install app" or "Add to Home Screen" to install.',
+        });
+      }
     }
-    setDeferredPrompt(null);
     setShowUserMenu(false);
   };
 
@@ -156,7 +180,7 @@ const Index = () => {
                       >
                         📋 My Bookings
                       </button>
-                      {!isAppInstalled && deferredPrompt && (
+                      {!isAppInstalled && (
                         <button
                           id="menu-install-app"
                           onClick={handleInstallApp}
@@ -164,7 +188,7 @@ const Index = () => {
                         >
                           <span>📥</span>
                           <span>Install App</span>
-                          <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-bold">NEW</span>
+                          <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-bold">FREE</span>
                         </button>
                       )}
                       <div className="border-t border-border mt-1 pt-1">
