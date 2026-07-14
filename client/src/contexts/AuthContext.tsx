@@ -44,6 +44,7 @@ interface AuthContextType {
   loading: boolean;
   bookings: Booking[];
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   signup: (data: Omit<User, 'id'> & { password: string }) => Promise<void>;
   logout: () => Promise<void>;
   addBooking: (booking: Omit<Booking, 'id' | 'trackingId' | 'createdAt' | 'status' | 'currentStep'>) => Promise<Booking>;
@@ -97,6 +98,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setBookings(bData);
   };
 
+  const loginWithGoogle = async (credential: string) => {
+    const res = await api.auth.googleLogin(credential);
+    localStorage.setItem('servicehub_token', res.token);
+    setUser(res.user);
+    const bData = await api.bookings.list();
+    setBookings(bData);
+  };
+
   const signup = async (data: Omit<User, 'id'> & { password: string }) => {
     const res = await api.auth.signup(data);
     localStorage.setItem('servicehub_token', res.token);
@@ -131,7 +140,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, bookings, login, signup, logout, addBooking, updateBooking, cancelBooking, refreshBookings }}>
+    <AuthContext.Provider value={{ user, loading, bookings, login, loginWithGoogle, signup, logout, addBooking, updateBooking, cancelBooking, refreshBookings }}>
       {children}
     </AuthContext.Provider>
   );

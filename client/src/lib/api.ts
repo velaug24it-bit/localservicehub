@@ -26,6 +26,8 @@ export const api = {
   auth: {
     login: (credentials: { email: string; password: string }) => 
       request('/api/auth/login', { method: 'POST', body: JSON.stringify(credentials) }),
+    googleLogin: (credential: string) =>
+      request('/api/auth/google', { method: 'POST', body: JSON.stringify({ credential }) }),
     signup: (data: any) => 
       request('/api/auth/signup', { method: 'POST', body: JSON.stringify(data) }),
     getProfile: () => 
