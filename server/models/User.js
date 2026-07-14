@@ -7,6 +7,8 @@ const UserSchema = new mongoose.Schema({
   location: { type: String, default: 'Chennai' },
   userType: { type: String, enum: ['customer', 'provider', 'admin'], default: 'customer' },
   password: { type: String, required: true },
+  authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
+  googleId: { type: String, default: '' },
   services: { type: Array, default: [] }, // array of { name: string, price: string }
   availability: { type: mongoose.Schema.Types.Mixed, default: null },
   serviceAreas: { type: [String], default: [] },

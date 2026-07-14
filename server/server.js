@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
 import https from 'https';
+import { OAuth2Client } from 'google-auth-library';
 
 import User from './models/User.js';
 import Booking from './models/Booking.js';
@@ -27,11 +28,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config({ path: path.resolve(__dirname, '.env') });
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'servicehub_secret_key_12345';
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/servicehub';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 // Middlewares
 app.use(cors());
@@ -265,6 +269,70 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ token, user });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Google Login
+app.post('/api/auth/google', async (req, res) => {
+  try {
+    if (!googleClient || !GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ error: 'Google login is not configured' });
+    }
+
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ error: 'Google credential is required' });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_CLIENT_ID
+    });
+    const payload = ticket.getPayload();
+
+    if (!payload?.email || !payload.email_verified) {
+      return res.status(400).json({ error: 'Google account email is not verified' });
+    }
+
+    const email = payload.email.toLowerCase();
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      const generatedPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+      user = new User({
+        email,
+        password: generatedPassword,
+        name: payload.name || email.split('@')[0],
+        phone: '',
+        location: 'Chennai',
+        userType: 'customer',
+        authProvider: 'google',
+        googleId: payload.sub,
+        approved: true
+      });
+      await user.save();
+    } else {
+      let changed = false;
+      if (!user.googleId) {
+        user.googleId = payload.sub;
+        changed = true;
+      }
+      if (user.authProvider !== 'google') {
+        user.authProvider = 'google';
+        changed = true;
+      }
+      if (changed) await user.save();
+    }
+
+    if (!user.approved) {
+      return res.status(403).json({ error: 'Your account is pending admin approval' });
+    }
+
+    const token = jwt.sign({ id: user.id }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user });
+  } catch (err) {
+    console.error('Google login failed:', err);
+    res.status(401).json({ error: 'Google login failed' });
   }
 });
 
