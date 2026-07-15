@@ -36,6 +36,11 @@ const categories = [
   { key: 'hvac', name: 'HVAC Tech', avatar: '❄️', services: ['AC Repair', 'Installation', 'Maintenance', 'Duct Cleaning'] },
   { key: 'handyman', name: 'Handyman', avatar: '🔨', services: ['Furniture Assembly', 'Painting', 'Repair', 'Installation'] },
   { key: 'landscaping', name: 'Landscaper', avatar: '🌿', services: ['Lawn Care', 'Garden Design', 'Tree Trimming', 'Irrigation'] },
+  { key: 'painter', name: 'Painter', avatar: '🎨', services: ['Interior Painting', 'Exterior Painting', 'Wall Texturing', 'Waterproofing', 'Polish & Varnish'] },
+  { key: 'cctv', name: 'CCTV Expert', avatar: '📷', services: ['CCTV Installation', 'Camera Setup', 'DVR/NVR Config', 'Network Config', 'Maintenance'] },
+  { key: 'ro_water', name: 'RO Technician', avatar: '💧', services: ['RO Installation', 'RO Repair', 'Filter Change', 'AMC Service', 'Water Testing'] },
+  { key: 'beauty', name: 'Beauty Expert', avatar: '💅', services: ['Facial', 'Hair Service', 'Waxing', 'Manicure & Pedicure', 'Bridal Makeup'] },
+  { key: 'vehicle_repair', name: 'Vehicle Mechanic', avatar: '🔧', services: ['Bike Service', 'Car Service', 'Tyre Change', 'Battery Replacement', 'Oil Change'] },
 ];
 
 function generateProviders(): Provider[] {
@@ -73,6 +78,11 @@ export const serviceCategories = [
   { key: 'hvac', icon: '❄️', name: 'HVAC', description: 'AC repair, installation & maintenance' },
   { key: 'handyman', icon: '🔨', name: 'Handyman', description: 'Repairs, assembly & installations' },
   { key: 'landscaping', icon: '🌿', name: 'Landscaping', description: 'Lawn care, garden design & trimming' },
+  { key: 'painter', icon: '🎨', name: 'Painter', description: 'Transform your home with professional painting' },
+  { key: 'cctv', icon: '📷', name: 'CCTV', description: 'Protect your home with expert CCTV installation' },
+  { key: 'ro_water', icon: '💧', name: 'RO Water', description: 'RO repair & installation — book today' },
+  { key: 'beauty', icon: '💅', name: 'Beauty', description: 'Salon at home — book instantly' },
+  { key: 'vehicle_repair', icon: '🚗', name: 'Vehicle Repair', description: 'Bike & car service at your doorstep' },
 ];
 
 export const trackingSteps: Record<string, { name: string; description: string }[]> = {
@@ -128,6 +138,51 @@ export const trackingSteps: Record<string, { name: string; description: string }
     { name: 'Gathering Equipment', description: 'Preparing tools and plants' },
     { name: 'Performing Work', description: 'Landscaping in progress' },
     { name: 'Cleanup', description: 'Cleaning the area' },
+    { name: 'Completed', description: 'Job completed successfully' },
+  ],
+  painter: [
+    { name: 'Booking Confirmed', description: 'Provider confirmed your booking' },
+    { name: 'Arriving at Location', description: 'Provider is on the way' },
+    { name: 'Surface Preparation', description: 'Cleaning & prepping the walls' },
+    { name: 'Primer Coat', description: 'Applying base primer coat' },
+    { name: 'Painting in Progress', description: 'Applying paint layers' },
+    { name: 'Final Touch-ups', description: 'Finishing edges and touch-ups' },
+    { name: 'Completed', description: 'Job completed successfully' },
+  ],
+  cctv: [
+    { name: 'Booking Confirmed', description: 'Provider confirmed your booking' },
+    { name: 'Arriving at Location', description: 'Provider is on the way' },
+    { name: 'Site Survey', description: 'Identifying camera placement points' },
+    { name: 'Mounting Cameras', description: 'Installing cameras and brackets' },
+    { name: 'Wiring & DVR Setup', description: 'Connecting cables and configuring DVR/NVR' },
+    { name: 'Testing & Demo', description: 'Testing footage and showing usage' },
+    { name: 'Completed', description: 'Job completed successfully' },
+  ],
+  ro_water: [
+    { name: 'Booking Confirmed', description: 'Provider confirmed your booking' },
+    { name: 'Arriving at Location', description: 'Provider is on the way' },
+    { name: 'Water Quality Check', description: 'Testing source water quality' },
+    { name: 'Installation/Repair', description: 'Installing or repairing the RO unit' },
+    { name: 'Filter Replacement', description: 'Replacing filters if needed' },
+    { name: 'Flush & Testing', description: 'Flushing system and testing output' },
+    { name: 'Completed', description: 'Job completed successfully' },
+  ],
+  beauty: [
+    { name: 'Booking Confirmed', description: 'Provider confirmed your booking' },
+    { name: 'Arriving at Location', description: 'Provider is on the way' },
+    { name: 'Setup & Preparation', description: 'Setting up tools and products' },
+    { name: 'Consultation', description: 'Understanding your beauty needs' },
+    { name: 'Service in Progress', description: 'Performing the beauty service' },
+    { name: 'Final Styling', description: 'Final finishing and styling' },
+    { name: 'Completed', description: 'Job completed successfully' },
+  ],
+  vehicle_repair: [
+    { name: 'Booking Confirmed', description: 'Provider confirmed your booking' },
+    { name: 'Arriving at Location', description: 'Mechanic is on the way' },
+    { name: 'Vehicle Inspection', description: 'Diagnosing the vehicle issue' },
+    { name: 'Gathering Parts', description: 'Arranging required spare parts' },
+    { name: 'Repair in Progress', description: 'Performing repairs or servicing' },
+    { name: 'Test Drive/Check', description: 'Final testing of the vehicle' },
     { name: 'Completed', description: 'Job completed successfully' },
   ],
 };
