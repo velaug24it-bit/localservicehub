@@ -265,32 +265,34 @@ export default function DynamicServiceSelector({
 
         {/* Step 3: Quantity + Add */}
         {selectedWorkType && (
-          <div className="flex items-end gap-2">
-            <div className="flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground block mb-1">
-                3. Quantity ({selectedItem?.unit})
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={999}
-                value={quantity}
-                onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-foreground text-sm focus:ring-2 focus:ring-primary outline-none"
-              />
-            </div>
-            <div className="text-right text-sm pb-2">
-              <div className="text-muted-foreground text-xs">Price</div>
-              <div className="font-bold text-primary">₹{(currentPrice * quantity).toLocaleString('en-IN')}</div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-end gap-2">
+              <div className="flex-1 min-w-0">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground block mb-1">
+                  3. Quantity ({selectedItem?.unit})
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={999}
+                  value={quantity}
+                  onChange={e => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-foreground text-sm focus:ring-2 focus:ring-primary outline-none"
+                />
+              </div>
+              <div className="text-right text-sm pb-1.5 shrink-0">
+                <div className="text-muted-foreground text-[11px]">Total</div>
+                <div className="font-bold text-primary text-base">₹{(currentPrice * quantity).toLocaleString('en-IN')}</div>
+              </div>
             </div>
             <button
               type="button"
               onClick={handleAddToCart}
               disabled={!canAdd}
-              className="flex items-center gap-1.5 gradient-primary text-primary-foreground px-3 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-40 whitespace-nowrap"
+              className="w-full flex items-center justify-center gap-1.5 gradient-primary text-primary-foreground px-3 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90 transition-all disabled:opacity-40 active:scale-95"
             >
               <Plus className="w-4 h-4" />
-              Add
+              Add to Booking
             </button>
           </div>
         )}
@@ -316,31 +318,38 @@ export default function DynamicServiceSelector({
           </div>
           <div className="divide-y divide-border">
             {cart.map((c) => (
-              <div key={c.workTypeId} className="flex items-center gap-2 px-3 py-2.5">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium text-foreground truncate">{c.serviceItemName}</div>
-                  <div className="text-xs text-muted-foreground">{c.workTypeName} · ₹{c.unitPrice}/{c.unit}</div>
-                </div>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateQty(c.workTypeId, c.quantity - 1)}
-                    className="w-6 h-6 rounded border border-border text-foreground flex items-center justify-center text-sm hover:bg-muted transition-colors"
-                  >−</button>
-                  <span className="w-7 text-center text-sm font-medium">{c.quantity}</span>
-                  <button
-                    type="button"
-                    onClick={() => handleUpdateQty(c.workTypeId, c.quantity + 1)}
-                    className="w-6 h-6 rounded border border-border text-foreground flex items-center justify-center text-sm hover:bg-muted transition-colors"
-                  >+</button>
-                  <span className="w-16 text-right text-sm font-bold text-primary">₹{c.subtotal.toLocaleString('en-IN')}</span>
+              <div key={c.workTypeId} className="px-3 py-2.5">
+                {/* Top row: name + remove */}
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-foreground leading-tight">{c.serviceItemName}</div>
+                    <div className="text-xs text-muted-foreground">{c.workTypeName} · ₹{c.unitPrice.toLocaleString('en-IN')}/{c.unit}</div>
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleRemoveFromCart(c.workTypeId)}
-                    className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                    className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                </div>
+                {/* Bottom row: qty controls + subtotal */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateQty(c.workTypeId, c.quantity - 1)}
+                      className="w-7 h-7 rounded-lg border border-border text-foreground flex items-center justify-center text-sm hover:bg-muted transition-colors active:scale-95"
+                    >−</button>
+                    <span className="w-8 text-center text-sm font-semibold">{c.quantity}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateQty(c.workTypeId, c.quantity + 1)}
+                      className="w-7 h-7 rounded-lg border border-border text-foreground flex items-center justify-center text-sm hover:bg-muted transition-colors active:scale-95"
+                    >+</button>
+                    <span className="text-xs text-muted-foreground ml-1">{c.unit}{c.quantity > 1 ? 's' : ''}</span>
+                  </div>
+                  <span className="text-sm font-bold text-primary">₹{c.subtotal.toLocaleString('en-IN')}</span>
                 </div>
               </div>
             ))}

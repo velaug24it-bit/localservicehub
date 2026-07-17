@@ -164,32 +164,32 @@ export default function ProviderPricingTab() {
   return (
     <div className="space-y-5">
       {/* Stats Row */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {[
-          { label: 'Total Services', value: totalServices, icon: '🔧', color: 'text-primary' },
+          { label: 'Total', value: totalServices, icon: '🔧', color: 'text-primary' },
           { label: 'Active', value: activeServices, icon: '✅', color: 'text-success' },
           { label: 'Avg Price', value: `₹${avgPrice}`, icon: '₹', color: 'text-info' },
         ].map(s => (
-          <div key={s.label} className="bg-card border border-border rounded-xl p-3 text-center">
-            <div className="text-lg mb-0.5">{s.icon}</div>
-            <div className={`text-xl font-bold ${s.color}`}>{s.value}</div>
-            <div className="text-[10px] text-muted-foreground uppercase font-semibold">{s.label}</div>
+          <div key={s.label} className="bg-card border border-border rounded-xl p-2.5 sm:p-3 text-center">
+            <div className="text-base sm:text-lg mb-0.5">{s.icon}</div>
+            <div className={`text-lg sm:text-xl font-bold ${s.color}`}>{s.value}</div>
+            <div className="text-[9px] sm:text-[10px] text-muted-foreground uppercase font-semibold leading-tight">{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Action Buttons */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <button
           onClick={() => setShowAddForm(v => !v)}
-          className="flex items-center gap-1.5 gradient-primary text-primary-foreground px-4 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition-all"
+          className="flex-1 flex items-center justify-center gap-1.5 gradient-primary text-primary-foreground px-4 py-2.5 rounded-lg text-sm font-semibold hover:opacity-90 transition-all active:scale-95"
         >
           <Plus className="w-4 h-4" />
           Add Pricing
         </button>
         <button
           onClick={() => setShowBulk(v => !v)}
-          className="flex items-center gap-1.5 border border-border bg-card text-foreground px-4 py-2 rounded-lg text-sm font-medium hover:bg-muted transition-colors"
+          className="flex-1 flex items-center justify-center gap-1.5 border border-border bg-card text-foreground px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-muted transition-colors active:scale-95"
         >
           <TrendingUp className="w-4 h-4" />
           Bulk Update
@@ -319,29 +319,36 @@ export default function ProviderPricingTab() {
                           {itemName}
                         </div>
                         {itemEntries.map(entry => (
-                          <div key={entry.id} className={`flex items-center gap-3 px-4 py-2.5 hover:bg-muted/10 transition-colors ${!entry.isActive ? 'opacity-50' : ''}`}>
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-foreground">{entry.workTypeName}</div>
-                              <div className="text-xs text-muted-foreground">~{entry.estimatedDuration}min</div>
+                          <div key={entry.id} className={`px-3 py-2.5 hover:bg-muted/10 transition-colors ${!entry.isActive ? 'opacity-50' : ''}`}>
+                            {/* Top row: work type name + duration */}
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium text-foreground">{entry.workTypeName}</div>
+                                <div className="text-xs text-muted-foreground">~{entry.estimatedDuration}min</div>
+                              </div>
+                              {/* Price display */}
+                              {editId !== entry.id && (
+                                <span className="text-sm font-bold text-primary shrink-0">₹{entry.price.toLocaleString('en-IN')}</span>
+                              )}
                             </div>
+                            {/* Bottom row: actions */}
                             {editId === entry.id ? (
-                              <div className="flex items-center gap-1.5 shrink-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="text-sm text-muted-foreground">₹</span>
                                 <input
                                   type="number"
                                   value={editPrice}
                                   onChange={e => setEditPrice(e.target.value)}
-                                  className="w-20 px-2 py-1 text-sm rounded border border-primary bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                  className="flex-1 min-w-0 px-2 py-1.5 text-sm rounded border border-primary bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                                   autoFocus
                                 />
                                 <button onClick={() => handleEdit(entry.id)}
-                                  className="text-xs gradient-primary text-primary-foreground px-2 py-1 rounded font-semibold hover:opacity-90">Save</button>
+                                  className="text-xs gradient-primary text-primary-foreground px-3 py-1.5 rounded font-semibold hover:opacity-90 shrink-0">Save</button>
                                 <button onClick={() => setEditId(null)}
-                                  className="text-xs border border-border text-foreground px-2 py-1 rounded hover:bg-muted transition-colors">✕</button>
+                                  className="text-xs border border-border text-foreground px-2 py-1.5 rounded hover:bg-muted transition-colors shrink-0">✕</button>
                               </div>
                             ) : (
-                              <div className="flex items-center gap-2 shrink-0">
-                                <span className="text-sm font-bold text-primary w-16 text-right">₹{entry.price.toLocaleString('en-IN')}</span>
+                              <div className="flex items-center gap-2">
                                 <button
                                   onClick={() => handleToggle(entry.id)}
                                   title={entry.isActive ? 'Disable' : 'Enable'}
@@ -353,17 +360,17 @@ export default function ProviderPricingTab() {
                                 </button>
                                 <button
                                   onClick={() => { setEditId(entry.id); setEditPrice(String(entry.price)); }}
-                                  className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-xs"
                                   title="Edit price"
                                 >
-                                  <Pencil className="w-3.5 h-3.5" />
+                                  <Pencil className="w-3 h-3" /> Edit
                                 </button>
                                 <button
                                   onClick={() => handleDelete(entry.id)}
-                                  className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors text-xs"
                                   title="Delete"
                                 >
-                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <Trash2 className="w-3 h-3" /> Delete
                                 </button>
                               </div>
                             )}

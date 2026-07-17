@@ -182,16 +182,16 @@ export default function AdminServiceCatalogTab() {
   return (
     <div className="space-y-5">
       {/* Level nav + stats */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap gap-2">
         {[
-          { level: 'categories' as ViewLevel, label: 'Categories', icon: <Layers className="w-4 h-4" />, count: categories.length },
-          { level: 'items' as ViewLevel, label: 'Service Items', icon: <List className="w-4 h-4" />, count: items.length },
-          { level: 'workTypes' as ViewLevel, label: 'Work Types', icon: <Wrench className="w-4 h-4" />, count: workTypes.length },
+          { level: 'categories' as ViewLevel, label: 'Categories', icon: <Layers className="w-3.5 h-3.5" />, count: categories.length },
+          { level: 'items' as ViewLevel, label: 'Items', icon: <List className="w-3.5 h-3.5" />, count: items.length },
+          { level: 'workTypes' as ViewLevel, label: 'Work Types', icon: <Wrench className="w-3.5 h-3.5" />, count: workTypes.length },
         ].map(lv => (
-          <div key={lv.level} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${viewLevel === lv.level ? 'bg-primary/10 border-primary/30 text-primary' : 'border-border text-muted-foreground'}`}>
+          <div key={lv.level} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${viewLevel === lv.level ? 'bg-primary/10 border-primary/30 text-primary' : 'border-border text-muted-foreground'}`}>
             {lv.icon}
-            {lv.label}
-            <span className="text-xs bg-muted px-1.5 py-0.5 rounded-full">{lv.count}</span>
+            <span className="hidden xs:inline sm:inline">{lv.label}</span>
+            <span className="bg-muted px-1.5 py-0.5 rounded-full text-[10px]">{lv.count}</span>
           </div>
         ))}
       </div>
@@ -217,7 +217,7 @@ export default function AdminServiceCatalogTab() {
       </div>
 
       {/* Action Bar */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col xs:flex-row sm:flex-row items-start sm:items-center justify-between gap-2">
         <h3 className="font-semibold text-foreground text-sm">
           {viewLevel === 'items' && selectedCat ? `Items in ${selectedCat.name}` :
            viewLevel === 'workTypes' && selectedItem ? `Work Types for ${selectedItem.name}` :
@@ -225,7 +225,7 @@ export default function AdminServiceCatalogTab() {
         </h3>
         <button
           onClick={openCreate}
-          className="flex items-center gap-1.5 gradient-primary text-primary-foreground px-3 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition-all"
+          className="flex items-center gap-1.5 gradient-primary text-primary-foreground px-3 py-2 rounded-lg text-sm font-semibold hover:opacity-90 transition-all active:scale-95 whitespace-nowrap"
         >
           <Plus className="w-4 h-4" />
           Add {levelLabel}
@@ -283,78 +283,135 @@ export default function AdminServiceCatalogTab() {
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           {currentItems.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
-              <span className="text-3xl block mb-2">📭</span>
+              <span className="text-3xl block mb-2">📫</span>
               No {levelLabel.toLowerCase()}s yet. Click &quot;Add {levelLabel}&quot; to create one.
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/40 border-b border-border text-muted-foreground text-xs uppercase font-medium">
-                  <th className="px-4 py-3 text-left">
-                    {viewLevel === 'categories' ? 'Category' : viewLevel === 'items' ? 'Item' : 'Work Type'}
-                  </th>
-                  <th className="px-4 py-3 text-left hidden sm:table-cell">
-                    {viewLevel === 'categories' ? 'Key' : viewLevel === 'items' ? 'Unit' : 'Duration / Default ₹'}
-                  </th>
-                  <th className="px-4 py-3 text-left hidden md:table-cell">
-                    {viewLevel === 'categories' ? 'Items' : viewLevel === 'items' ? 'Work Types' : 'Description'}
-                  </th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <>
+              {/* Mobile: card list */}
+              <div className="md:hidden divide-y divide-border">
                 {currentItems.map((item: any) => (
-                  <tr key={item.id} className={`hover:bg-muted/10 transition-colors ${!item.isActive ? 'opacity-50' : ''}`}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        {viewLevel === 'categories' && <span className="text-lg">{item.icon}</span>}
-                        <div>
-                          <div className="font-medium text-foreground">{item.name}</div>
-                          {item.description && <div className="text-xs text-muted-foreground truncate max-w-[180px]">{item.description}</div>}
+                  <div key={item.id} className={`p-3 ${!item.isActive ? 'opacity-50' : ''}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {viewLevel === 'categories' && <span className="text-xl shrink-0">{item.icon}</span>}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-foreground text-sm leading-tight">{item.name}</div>
+                          <div className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                            {viewLevel === 'categories' ? item.key :
+                             viewLevel === 'items' ? `unit: ${item.unit}` :
+                             `${item.estimatedDuration}min · ₹${item.defaultPrice} default`}
+                          </div>
+                          {viewLevel === 'categories' && item.description && (
+                            <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{item.description}</div>
+                          )}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground text-xs font-mono">
-                      {viewLevel === 'categories' ? item.key :
-                       viewLevel === 'items' ? item.unit :
-                       `${item.estimatedDuration}min · ₹${item.defaultPrice}`}
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell text-muted-foreground text-xs">
-                      {viewLevel === 'categories' ? (item.itemCount ?? '—') :
-                       viewLevel === 'items' ? (item.wtCount ?? '—') :
-                       item.key}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => handleToggle(item)} title={item.isActive ? 'Disable' : 'Enable'}>
+                      {/* Toggle */}
+                      <button onClick={() => handleToggle(item)} className="shrink-0 mt-0.5">
                         {item.isActive
-                          ? <ToggleRight className="w-5 h-5 text-success mx-auto" />
-                          : <ToggleLeft className="w-5 h-5 text-muted-foreground mx-auto" />}
+                          ? <ToggleRight className="w-5 h-5 text-success" />
+                          : <ToggleLeft className="w-5 h-5 text-muted-foreground" />}
                       </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        {viewLevel !== 'workTypes' && (
-                          <button
-                            onClick={() => viewLevel === 'categories' ? drillIntoCategory(item) : drillIntoItem(item)}
-                            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors text-xs font-medium"
-                            title={`View ${viewLevel === 'categories' ? 'items' : 'work types'}`}
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </button>
-                        )}
-                        <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit">
-                          <Pencil className="w-3.5 h-3.5" />
+                    </div>
+                    {/* Actions row */}
+                    <div className="flex items-center gap-1.5 mt-2.5">
+                      {viewLevel !== 'workTypes' && (
+                        <button
+                          onClick={() => viewLevel === 'categories' ? drillIntoCategory(item) : drillIntoItem(item)}
+                          className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors active:scale-95"
+                        >
+                          View {viewLevel === 'categories' ? 'Items' : 'Work Types'}
+                          <ChevronRight className="w-3.5 h-3.5" />
                         </button>
-                        <button onClick={() => handleDelete(item.id)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Delete">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                      )}
+                      <button
+                        onClick={() => openEdit(item)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-foreground text-xs font-medium hover:bg-muted transition-colors active:scale-95"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </button>
+                      <button
+                        onClick={() => handleDelete(item.id)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive text-xs font-medium hover:bg-destructive/10 transition-colors active:scale-95"
+                      >
+                        <Trash2 className="w-3 h-3" /> Del
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Desktop: table */}
+              <table className="w-full text-sm hidden md:table">
+                <thead>
+                  <tr className="bg-muted/40 border-b border-border text-muted-foreground text-xs uppercase font-medium">
+                    <th className="px-4 py-3 text-left">
+                      {viewLevel === 'categories' ? 'Category' : viewLevel === 'items' ? 'Item' : 'Work Type'}
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      {viewLevel === 'categories' ? 'Key' : viewLevel === 'items' ? 'Unit' : 'Duration / Default ₹'}
+                    </th>
+                    <th className="px-4 py-3 text-left">
+                      {viewLevel === 'categories' ? 'Items' : viewLevel === 'items' ? 'Work Types' : 'Key'}
+                    </th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {currentItems.map((item: any) => (
+                    <tr key={item.id} className={`hover:bg-muted/10 transition-colors ${!item.isActive ? 'opacity-50' : ''}`}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {viewLevel === 'categories' && <span className="text-lg">{item.icon}</span>}
+                          <div>
+                            <div className="font-medium text-foreground">{item.name}</div>
+                            {item.description && <div className="text-xs text-muted-foreground truncate max-w-[180px]">{item.description}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs font-mono">
+                        {viewLevel === 'categories' ? item.key :
+                         viewLevel === 'items' ? item.unit :
+                         `${item.estimatedDuration}min · ₹${item.defaultPrice}`}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {viewLevel === 'categories' ? (item.itemCount ?? '—') :
+                         viewLevel === 'items' ? (item.wtCount ?? '—') :
+                         item.key}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <button onClick={() => handleToggle(item)} title={item.isActive ? 'Disable' : 'Enable'}>
+                          {item.isActive
+                            ? <ToggleRight className="w-5 h-5 text-success mx-auto" />
+                            : <ToggleLeft className="w-5 h-5 text-muted-foreground mx-auto" />}
+                        </button>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          {viewLevel !== 'workTypes' && (
+                            <button
+                              onClick={() => viewLevel === 'categories' ? drillIntoCategory(item) : drillIntoItem(item)}
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-primary transition-colors"
+                              title={`View ${viewLevel === 'categories' ? 'items' : 'work types'}`}
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button onClick={() => openEdit(item)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(item.id)} className="p-1.5 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       )}
