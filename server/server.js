@@ -23,6 +23,10 @@ import AiMatchLog from './models/AiMatchLog.js';
 import SmartPricingLog from './models/SmartPricingLog.js';
 import ReactivationPayment from './models/ReactivationPayment.js';
 import Review from './models/Review.js';
+import ServiceCategory from './models/ServiceCategory.js';
+import ServiceItem from './models/ServiceItem.js';
+import WorkType from './models/WorkType.js';
+import ProviderPricing from './models/ProviderPricing.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1512,6 +1516,424 @@ app.get('/api/admin/pricing-logs', auth, adminOnly, async (req, res) => {
 });
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// --- UNIVERSAL SERVICE CATALOG API (Public) ---
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET all active categories
+app.get('/api/service-catalog/categories', async (req, res) => {
+  try {
+    const categories = await ServiceCategory.find({ isActive: true }).sort({ sortOrder: 1, name: 1 });
+    res.json(categories);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET service items for a category
+app.get('/api/service-catalog/categories/:categoryId/items', async (req, res) => {
+  try {
+    const items = await ServiceItem.find({ categoryId: req.params.categoryId, isActive: true }).sort({ sortOrder: 1, name: 1 });
+    res.json(items);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET work types for a service item
+app.get('/api/service-catalog/items/:itemId/work-types', async (req, res) => {
+  try {
+    const workTypes = await WorkType.find({ serviceItemId: req.params.itemId, isActive: true }).sort({ sortOrder: 1, name: 1 });
+    res.json(workTypes);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET category by key (used by booking modal to look up category)
+app.get('/api/service-catalog/category-by-key/:key', async (req, res) => {
+  try {
+    const cat = await ServiceCategory.findOne({ key: req.params.key.toLowerCase(), isActive: true });
+    if (!cat) return res.status(404).json({ error: 'Category not found' });
+    res.json(cat);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET provider pricing for a specific provider (customer booking modal)
+app.get('/api/service-catalog/provider/:providerId/pricing', async (req, res) => {
+  try {
+    const pricing = await ProviderPricing.find({ providerId: req.params.providerId, isActive: true });
+    res.json(pricing);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST — server-side booking price calculation (security: never trust client prices)
+app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
+  try {
+    const { providerId, serviceItems } = req.body;
+    // serviceItems: [{ workTypeId, quantity }]
+    if (!providerId || !Array.isArray(serviceItems) || serviceItems.length === 0) {
+      return res.status(400).json({ error: 'providerId and serviceItems[] are required' });
+    }
+
+    const BOOKING_FEE = 50;
+    const PLATFORM_FEE_RATE = 0.02; // 2% of subtotal
+
+    let subtotal = 0;
+    const calculatedItems = [];
+
+    for (const si of serviceItems) {
+      const { workTypeId, quantity = 1 } = si;
+      if (!workTypeId) continue;
+
+      // Look up provider's price
+      const pricing = await ProviderPricing.findOne({ providerId, workTypeId, isActive: true });
+      const wt = await WorkType.findById(workTypeId);
+      const item = wt ? await ServiceItem.findById(wt.serviceItemId) : null;
+
+      // Fallback to workType defaultPrice if provider hasn't set a price
+      let unitPrice = 0;
+      if (pricing) {
+        unitPrice = pricing.price;
+      } else if (wt && wt.defaultPrice > 0) {
+        unitPrice = wt.defaultPrice;
+      } else {
+        // Last fallback: 0 (provider hasn't configured)
+        unitPrice = 0;
+      }
+
+      const qty = Math.max(1, parseInt(quantity) || 1);
+      const itemSubtotal = unitPrice * qty;
+      subtotal += itemSubtotal;
+
+      calculatedItems.push({
+        serviceItemId:   item ? item.id : '',
+        serviceItemName: item ? item.name : '',
+        workTypeId,
+        workTypeName:    wt ? wt.name : '',
+        quantity:        qty,
+        unitPrice,
+        subtotal:        itemSubtotal,
+        estimatedDuration: wt ? wt.estimatedDuration * qty : 60
+      });
+    }
+
+    const platformFee = Math.round(subtotal * PLATFORM_FEE_RATE);
+    const grandTotal = subtotal + BOOKING_FEE + platformFee;
+    const platformCommission = platformFee + BOOKING_FEE;
+    const providerEarnings = subtotal - platformFee;
+
+    res.json({
+      serviceItems: calculatedItems,
+      priceBreakdown: {
+        subtotal,
+        bookingFee: BOOKING_FEE,
+        platformFee,
+        taxes: 0,
+        grandTotal,
+        providerEarnings,
+        platformCommission
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// --- PROVIDER PRICING MANAGEMENT API ---
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET my pricing list
+app.get('/api/provider/pricing', auth, async (req, res) => {
+  try {
+    const pricing = await ProviderPricing.find({ providerId: req.userId }).sort({ categoryKey: 1, serviceItemKey: 1, workTypeKey: 1 });
+    res.json(pricing);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST — add a new price entry
+app.post('/api/provider/pricing', auth, async (req, res) => {
+  try {
+    const { categoryId, categoryKey, categoryName, serviceItemId, serviceItemName, serviceItemKey, workTypeId, workTypeName, workTypeKey, price } = req.body;
+    if (!workTypeId || price === undefined || price === null) {
+      return res.status(400).json({ error: 'workTypeId and price are required' });
+    }
+
+    // Fetch estimatedDuration from WorkType
+    const wt = await WorkType.findById(workTypeId);
+    const estimatedDuration = wt ? wt.estimatedDuration : 60;
+
+    const entry = new ProviderPricing({
+      providerId: req.userId,
+      categoryId, categoryKey, categoryName,
+      serviceItemId, serviceItemName, serviceItemKey,
+      workTypeId, workTypeName, workTypeKey,
+      estimatedDuration,
+      price: Math.max(0, Number(price)),
+      isActive: true
+    });
+    await entry.save();
+    res.status(201).json(entry);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Price for this work type already exists. Use edit to update it.' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT — edit a price entry
+app.put('/api/provider/pricing/:id', auth, async (req, res) => {
+  try {
+    const entry = await ProviderPricing.findOne({ _id: req.params.id, providerId: req.userId });
+    if (!entry) return res.status(404).json({ error: 'Pricing entry not found' });
+
+    const { price, isActive } = req.body;
+    if (price !== undefined) entry.price = Math.max(0, Number(price));
+    if (isActive !== undefined) entry.isActive = !!isActive;
+    await entry.save();
+    res.json(entry);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE — remove a price entry
+app.delete('/api/provider/pricing/:id', auth, async (req, res) => {
+  try {
+    const result = await ProviderPricing.deleteOne({ _id: req.params.id, providerId: req.userId });
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Pricing entry not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT — toggle enable/disable a price entry
+app.put('/api/provider/pricing/:id/toggle', auth, async (req, res) => {
+  try {
+    const entry = await ProviderPricing.findOne({ _id: req.params.id, providerId: req.userId });
+    if (!entry) return res.status(404).json({ error: 'Pricing entry not found' });
+    entry.isActive = !entry.isActive;
+    await entry.save();
+    res.json(entry);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT — bulk update all prices by percentage
+app.put('/api/provider/pricing/bulk-update', auth, async (req, res) => {
+  try {
+    const { percentage, categoryId } = req.body; // percentage: e.g. 10 means +10%, -5 means -5%
+    if (percentage === undefined) return res.status(400).json({ error: 'percentage is required' });
+
+    const query = { providerId: req.userId };
+    if (categoryId) query.categoryId = categoryId;
+
+    const entries = await ProviderPricing.find(query);
+    const multiplier = 1 + (Number(percentage) / 100);
+
+    const updates = entries.map(e => ({
+      updateOne: {
+        filter: { _id: e._id },
+        update: { $set: { price: Math.max(0, Math.round(e.price * multiplier)) } }
+      }
+    }));
+
+    if (updates.length > 0) await ProviderPricing.bulkWrite(updates);
+    res.json({ updated: updates.length, percentage });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// --- ADMIN SERVICE CATALOG MANAGEMENT API ---
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── CATEGORIES ────────────────────────────────────────────────────────────
+
+app.get('/api/admin/service-catalog/categories', auth, adminOnly, async (req, res) => {
+  try {
+    const cats = await ServiceCategory.find().sort({ sortOrder: 1, name: 1 });
+    // Attach counts
+    const result = await Promise.all(cats.map(async c => {
+      const itemCount = await ServiceItem.countDocuments({ categoryId: c._id });
+      return { ...c.toJSON(), itemCount };
+    }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/service-catalog/categories', auth, adminOnly, async (req, res) => {
+  try {
+    const { name, key, icon, description, sortOrder } = req.body;
+    if (!name || !key) return res.status(400).json({ error: 'name and key are required' });
+    const cat = new ServiceCategory({ name, key: key.toLowerCase().replace(/\s+/g, '_'), icon: icon || '🔧', description: description || '', sortOrder: sortOrder || 0 });
+    await cat.save();
+    res.status(201).json(cat);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Category key already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/service-catalog/categories/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { name, icon, description, isActive, sortOrder } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (icon !== undefined) updates.icon = icon;
+    if (description !== undefined) updates.description = description;
+    if (isActive !== undefined) updates.isActive = !!isActive;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+    const cat = await ServiceCategory.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!cat) return res.status(404).json({ error: 'Category not found' });
+    res.json(cat);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/service-catalog/categories/:id', auth, adminOnly, async (req, res) => {
+  try {
+    // Cascade delete: remove items and work types under this category
+    const items = await ServiceItem.find({ categoryId: req.params.id });
+    const itemIds = items.map(i => i._id);
+    await WorkType.deleteMany({ serviceItemId: { $in: itemIds } });
+    await ServiceItem.deleteMany({ categoryId: req.params.id });
+    await ServiceCategory.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── SERVICE ITEMS ─────────────────────────────────────────────────────────
+
+app.get('/api/admin/service-catalog/items', auth, adminOnly, async (req, res) => {
+  try {
+    const { categoryId } = req.query;
+    const query = categoryId ? { categoryId } : {};
+    const items = await ServiceItem.find(query).sort({ sortOrder: 1, name: 1 });
+    const result = await Promise.all(items.map(async i => {
+      const wtCount = await WorkType.countDocuments({ serviceItemId: i._id });
+      return { ...i.toJSON(), wtCount };
+    }));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/service-catalog/items', auth, adminOnly, async (req, res) => {
+  try {
+    const { categoryId, name, key, description, unit, sortOrder } = req.body;
+    if (!categoryId || !name || !key) return res.status(400).json({ error: 'categoryId, name and key are required' });
+    const cat = await ServiceCategory.findById(categoryId);
+    if (!cat) return res.status(404).json({ error: 'Category not found' });
+    const item = new ServiceItem({ categoryId, categoryKey: cat.key, name, key: key.toLowerCase().replace(/\s+/g, '_'), description: description || '', unit: unit || 'unit', sortOrder: sortOrder || 0 });
+    await item.save();
+    res.status(201).json(item);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Item key already exists in this category' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/service-catalog/items/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { name, description, unit, isActive, sortOrder } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (unit !== undefined) updates.unit = unit;
+    if (isActive !== undefined) updates.isActive = !!isActive;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+    const item = await ServiceItem.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!item) return res.status(404).json({ error: 'Service item not found' });
+    res.json(item);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/service-catalog/items/:id', auth, adminOnly, async (req, res) => {
+  try {
+    await WorkType.deleteMany({ serviceItemId: req.params.id });
+    await ServiceItem.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── WORK TYPES ────────────────────────────────────────────────────────────
+
+app.get('/api/admin/service-catalog/work-types', auth, adminOnly, async (req, res) => {
+  try {
+    const { serviceItemId } = req.query;
+    const query = serviceItemId ? { serviceItemId } : {};
+    const wts = await WorkType.find(query).sort({ sortOrder: 1, name: 1 });
+    res.json(wts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/service-catalog/work-types', auth, adminOnly, async (req, res) => {
+  try {
+    const { serviceItemId, name, key, description, estimatedDuration, defaultPrice, sortOrder } = req.body;
+    if (!serviceItemId || !name || !key) return res.status(400).json({ error: 'serviceItemId, name and key are required' });
+    const item = await ServiceItem.findById(serviceItemId);
+    if (!item) return res.status(404).json({ error: 'Service item not found' });
+    const wt = new WorkType({ serviceItemId, categoryId: item.categoryId, categoryKey: item.categoryKey, itemKey: item.key, name, key: key.toLowerCase().replace(/\s+/g, '_'), description: description || '', estimatedDuration: estimatedDuration || 60, defaultPrice: defaultPrice || 0, sortOrder: sortOrder || 0 });
+    await wt.save();
+    res.status(201).json(wt);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Work type key already exists for this item' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/service-catalog/work-types/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { name, description, estimatedDuration, defaultPrice, isActive, sortOrder } = req.body;
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (estimatedDuration !== undefined) updates.estimatedDuration = estimatedDuration;
+    if (defaultPrice !== undefined) updates.defaultPrice = defaultPrice;
+    if (isActive !== undefined) updates.isActive = !!isActive;
+    if (sortOrder !== undefined) updates.sortOrder = sortOrder;
+    const wt = await WorkType.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!wt) return res.status(404).json({ error: 'Work type not found' });
+    res.json(wt);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/service-catalog/work-types/:id', auth, adminOnly, async (req, res) => {
+  try {
+    await WorkType.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 // Serve React build static assets in production
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '../client/dist');
@@ -1569,6 +1991,303 @@ mongoose.connect(MONGODB_URI)
       adminUserExists.password = adminPasswordHash;
       await adminUserExists.save();
       console.log(`🌱 Updated Admin credentials: ${adminEmail} / velraj2006`);
+    }
+
+    // ── Seed Service Catalog if empty ────────────────────────────────────
+    const catalogCount = await ServiceCategory.countDocuments();
+    if (catalogCount === 0) {
+      console.log('🌱 Seeding Universal Service Catalog...');
+
+      const catalogData = [
+        {
+          name: 'Electrical', key: 'electrical', icon: '⚡', description: 'Wiring, repairs & safety inspections',
+          items: [
+            { name: 'Fan', key: 'fan', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 60, defaultPrice: 300 },
+              { name: 'Repair', key: 'repair', duration: 45, defaultPrice: 200 },
+              { name: 'Replacement', key: 'replacement', duration: 60, defaultPrice: 350 },
+              { name: 'Inspection', key: 'inspection', duration: 30, defaultPrice: 150 },
+              { name: 'Maintenance', key: 'maintenance', duration: 45, defaultPrice: 220 },
+            ]},
+            { name: 'Switch', key: 'switch', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 30, defaultPrice: 120 },
+              { name: 'Repair', key: 'repair', duration: 20, defaultPrice: 80 },
+              { name: 'Replacement', key: 'replacement', duration: 30, defaultPrice: 150 },
+            ]},
+            { name: 'Socket', key: 'socket', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 30, defaultPrice: 130 },
+              { name: 'Repair', key: 'repair', duration: 20, defaultPrice: 90 },
+              { name: 'Replacement', key: 'replacement', duration: 30, defaultPrice: 160 },
+            ]},
+            { name: 'Light', key: 'light', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 30, defaultPrice: 180 },
+              { name: 'Repair', key: 'repair', duration: 20, defaultPrice: 120 },
+              { name: 'Replacement', key: 'replacement', duration: 30, defaultPrice: 200 },
+            ]},
+            { name: 'MCB / Fuse', key: 'mcb', unit: 'unit', workTypes: [
+              { name: 'Replacement', key: 'replacement', duration: 45, defaultPrice: 250 },
+              { name: 'Inspection', key: 'inspection', duration: 30, defaultPrice: 150 },
+            ]},
+            { name: 'Wiring', key: 'wiring', unit: 'meter', workTypes: [
+              { name: 'New Wiring', key: 'new_wiring', duration: 120, defaultPrice: 400 },
+              { name: 'Re-Wiring', key: 're_wiring', duration: 90, defaultPrice: 350 },
+              { name: 'Short Circuit Repair', key: 'short_circuit', duration: 60, defaultPrice: 500 },
+            ]},
+          ]
+        },
+        {
+          name: 'Plumbing', key: 'plumbing', icon: '🔧', description: 'Pipe repairs, installations & drain cleaning',
+          items: [
+            { name: 'Tap / Faucet', key: 'tap', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 30, defaultPrice: 200 },
+              { name: 'Repair', key: 'repair', duration: 20, defaultPrice: 150 },
+              { name: 'Replacement', key: 'replacement', duration: 45, defaultPrice: 250 },
+            ]},
+            { name: 'Pipe', key: 'pipe', unit: 'meter', workTypes: [
+              { name: 'Leak Repair', key: 'leak_repair', duration: 45, defaultPrice: 300 },
+              { name: 'Installation', key: 'installation', duration: 60, defaultPrice: 400 },
+              { name: 'Replacement', key: 'replacement', duration: 60, defaultPrice: 450 },
+              { name: 'Cleaning', key: 'cleaning', duration: 30, defaultPrice: 200 },
+            ]},
+            { name: 'Toilet', key: 'toilet', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 90, defaultPrice: 800 },
+              { name: 'Repair', key: 'repair', duration: 45, defaultPrice: 400 },
+              { name: 'Unclogging', key: 'unclogging', duration: 30, defaultPrice: 250 },
+            ]},
+            { name: 'Wash Basin', key: 'wash_basin', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 60, defaultPrice: 500 },
+              { name: 'Repair', key: 'repair', duration: 30, defaultPrice: 250 },
+            ]},
+            { name: 'Water Tank', key: 'water_tank', unit: 'unit', workTypes: [
+              { name: 'Cleaning', key: 'cleaning', duration: 60, defaultPrice: 600 },
+              { name: 'Installation', key: 'installation', duration: 120, defaultPrice: 1200 },
+              { name: 'Repair', key: 'repair', duration: 45, defaultPrice: 400 },
+            ]},
+            { name: 'Drain', key: 'drain', unit: 'unit', workTypes: [
+              { name: 'Unclogging', key: 'unclogging', duration: 30, defaultPrice: 300 },
+              { name: 'Cleaning', key: 'cleaning', duration: 45, defaultPrice: 350 },
+            ]},
+          ]
+        },
+        {
+          name: 'Cleaning', key: 'cleaning', icon: '🧹', description: 'Deep cleaning, regular & office cleaning',
+          items: [
+            { name: 'Kitchen', key: 'kitchen', unit: 'room', workTypes: [
+              { name: 'Basic Cleaning', key: 'basic_cleaning', duration: 60, defaultPrice: 500 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 120, defaultPrice: 1200 },
+              { name: 'Sanitization', key: 'sanitization', duration: 90, defaultPrice: 900 },
+            ]},
+            { name: 'Bathroom', key: 'bathroom', unit: 'unit', workTypes: [
+              { name: 'Basic Cleaning', key: 'basic_cleaning', duration: 30, defaultPrice: 300 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 60, defaultPrice: 700 },
+              { name: 'Sanitization', key: 'sanitization', duration: 45, defaultPrice: 500 },
+            ]},
+            { name: 'Bedroom', key: 'bedroom', unit: 'room', workTypes: [
+              { name: 'Basic Cleaning', key: 'basic_cleaning', duration: 45, defaultPrice: 400 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 90, defaultPrice: 900 },
+            ]},
+            { name: 'Office', key: 'office', unit: 'sq ft', workTypes: [
+              { name: 'Regular Cleaning', key: 'regular_cleaning', duration: 60, defaultPrice: 600 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 120, defaultPrice: 1500 },
+            ]},
+            { name: 'Sofa', key: 'sofa', unit: 'unit', workTypes: [
+              { name: 'Shampooing', key: 'shampooing', duration: 60, defaultPrice: 800 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 90, defaultPrice: 1200 },
+            ]},
+            { name: 'Carpet', key: 'carpet', unit: 'sq ft', workTypes: [
+              { name: 'Vacuuming', key: 'vacuuming', duration: 30, defaultPrice: 300 },
+              { name: 'Shampooing', key: 'shampooing', duration: 60, defaultPrice: 700 },
+            ]},
+          ]
+        },
+        {
+          name: 'AC Service', key: 'hvac', icon: '❄️', description: 'AC repair, installation & maintenance',
+          items: [
+            { name: 'Indoor Unit', key: 'indoor_unit', unit: 'unit', workTypes: [
+              { name: 'General Service', key: 'general_service', duration: 60, defaultPrice: 800 },
+              { name: 'Deep Cleaning', key: 'deep_cleaning', duration: 90, defaultPrice: 1200 },
+              { name: 'Installation', key: 'installation', duration: 120, defaultPrice: 1500 },
+              { name: 'Repair', key: 'repair', duration: 60, defaultPrice: 1000 },
+            ]},
+            { name: 'Outdoor Unit', key: 'outdoor_unit', unit: 'unit', workTypes: [
+              { name: 'General Service', key: 'general_service', duration: 60, defaultPrice: 600 },
+              { name: 'Installation', key: 'installation', duration: 90, defaultPrice: 1200 },
+            ]},
+            { name: 'Gas Refilling', key: 'gas_line', unit: 'unit', workTypes: [
+              { name: 'Gas Refilling', key: 'gas_refilling', duration: 60, defaultPrice: 2000 },
+              { name: 'Gas Leak Check', key: 'gas_leak_check', duration: 30, defaultPrice: 500 },
+            ]},
+            { name: 'Filters', key: 'filters', unit: 'unit', workTypes: [
+              { name: 'Filter Cleaning', key: 'filter_cleaning', duration: 30, defaultPrice: 300 },
+              { name: 'Filter Replacement', key: 'filter_replacement', duration: 30, defaultPrice: 500 },
+            ]},
+            { name: 'PCB / Compressor', key: 'compressor', unit: 'unit', workTypes: [
+              { name: 'PCB Repair', key: 'pcb_repair', duration: 120, defaultPrice: 2500 },
+              { name: 'Compressor Replacement', key: 'compressor_replacement', duration: 180, defaultPrice: 5000 },
+            ]},
+          ]
+        },
+        {
+          name: 'Painting', key: 'painter', icon: '🎨', description: 'Interior, exterior & waterproof painting',
+          items: [
+            { name: 'Interior Wall', key: 'interior_wall', unit: 'sq ft', workTypes: [
+              { name: 'Painting', key: 'painting', duration: 60, defaultPrice: 15 },
+              { name: 'Repainting', key: 'repainting', duration: 60, defaultPrice: 12 },
+              { name: 'Wall Putty', key: 'wall_putty', duration: 45, defaultPrice: 10 },
+              { name: 'Touch Up', key: 'touch_up', duration: 30, defaultPrice: 8 },
+            ]},
+            { name: 'Exterior Wall', key: 'exterior_wall', unit: 'sq ft', workTypes: [
+              { name: 'Painting', key: 'painting', duration: 60, defaultPrice: 20 },
+              { name: 'Waterproof Coating', key: 'waterproof_coating', duration: 60, defaultPrice: 25 },
+              { name: 'Primer', key: 'primer', duration: 45, defaultPrice: 8 },
+            ]},
+            { name: 'Ceiling', key: 'ceiling', unit: 'sq ft', workTypes: [
+              { name: 'Painting', key: 'painting', duration: 60, defaultPrice: 18 },
+              { name: 'Whitewash', key: 'whitewash', duration: 45, defaultPrice: 12 },
+            ]},
+            { name: 'Wood / Furniture', key: 'wood', unit: 'unit', workTypes: [
+              { name: 'Polish', key: 'polish', duration: 60, defaultPrice: 500 },
+              { name: 'Painting', key: 'painting', duration: 60, defaultPrice: 400 },
+              { name: 'Varnish', key: 'varnish', duration: 60, defaultPrice: 450 },
+            ]},
+            { name: 'Metal', key: 'metal', unit: 'unit', workTypes: [
+              { name: 'Anti-Rust Coat', key: 'anti_rust', duration: 60, defaultPrice: 350 },
+              { name: 'Painting', key: 'painting', duration: 60, defaultPrice: 300 },
+            ]},
+          ]
+        },
+        {
+          name: 'Landscaping', key: 'landscaping', icon: '🌿', description: 'Lawn care, garden design & trimming',
+          items: [
+            { name: 'Lawn', key: 'lawn', unit: 'sq ft', workTypes: [
+              { name: 'Grass Cutting', key: 'grass_cutting', duration: 60, defaultPrice: 5 },
+              { name: 'Weed Removal', key: 'weed_removal', duration: 45, defaultPrice: 4 },
+              { name: 'Fertilizing', key: 'fertilizing', duration: 30, defaultPrice: 3 },
+            ]},
+            { name: 'Garden', key: 'garden', unit: 'unit', workTypes: [
+              { name: 'Garden Design', key: 'garden_design', duration: 180, defaultPrice: 2000 },
+              { name: 'Garden Cleaning', key: 'garden_cleaning', duration: 90, defaultPrice: 800 },
+              { name: 'Maintenance', key: 'maintenance', duration: 60, defaultPrice: 600 },
+            ]},
+            { name: 'Trees', key: 'trees', unit: 'unit', workTypes: [
+              { name: 'Tree Trimming', key: 'tree_trimming', duration: 60, defaultPrice: 500 },
+              { name: 'Tree Removal', key: 'tree_removal', duration: 120, defaultPrice: 1500 },
+            ]},
+            { name: 'Plants', key: 'plants', unit: 'unit', workTypes: [
+              { name: 'Planting', key: 'planting', duration: 30, defaultPrice: 200 },
+              { name: 'Repotting', key: 'repotting', duration: 20, defaultPrice: 150 },
+            ]},
+            { name: 'Hedges', key: 'hedges', unit: 'meter', workTypes: [
+              { name: 'Trimming', key: 'trimming', duration: 60, defaultPrice: 300 },
+              { name: 'Shaping', key: 'shaping', duration: 60, defaultPrice: 350 },
+            ]},
+          ]
+        },
+        {
+          name: 'Handyman', key: 'handyman', icon: '🔨', description: 'Repairs, assembly & installations',
+          items: [
+            { name: 'Furniture', key: 'furniture', unit: 'unit', workTypes: [
+              { name: 'Assembly', key: 'assembly', duration: 60, defaultPrice: 500 },
+              { name: 'Repair', key: 'repair', duration: 45, defaultPrice: 350 },
+              { name: 'Disassembly', key: 'disassembly', duration: 30, defaultPrice: 250 },
+            ]},
+            { name: 'Door / Window', key: 'door_window', unit: 'unit', workTypes: [
+              { name: 'Repair', key: 'repair', duration: 45, defaultPrice: 400 },
+              { name: 'Installation', key: 'installation', duration: 90, defaultPrice: 800 },
+              { name: 'Lock Replacement', key: 'lock_replacement', duration: 30, defaultPrice: 300 },
+            ]},
+            { name: 'Shelving / Mounting', key: 'shelving', unit: 'unit', workTypes: [
+              { name: 'TV Mounting', key: 'tv_mounting', duration: 45, defaultPrice: 400 },
+              { name: 'Shelf Installation', key: 'shelf_installation', duration: 30, defaultPrice: 300 },
+            ]},
+            { name: 'Wall / Ceiling', key: 'wall', unit: 'sq ft', workTypes: [
+              { name: 'Crack Filling', key: 'crack_filling', duration: 30, defaultPrice: 200 },
+              { name: 'Tile Repair', key: 'tile_repair', duration: 45, defaultPrice: 350 },
+            ]},
+          ]
+        },
+        {
+          name: 'CCTV', key: 'cctv', icon: '📷', description: 'CCTV installation and maintenance',
+          items: [
+            { name: 'Camera', key: 'camera', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 60, defaultPrice: 800 },
+              { name: 'Replacement', key: 'replacement', duration: 60, defaultPrice: 700 },
+              { name: 'Repositioning', key: 'repositioning', duration: 30, defaultPrice: 300 },
+            ]},
+            { name: 'DVR / NVR', key: 'dvr_nvr', unit: 'unit', workTypes: [
+              { name: 'Setup & Config', key: 'setup_config', duration: 90, defaultPrice: 1000 },
+              { name: 'Repair', key: 'repair', duration: 60, defaultPrice: 800 },
+            ]},
+            { name: 'Wiring', key: 'wiring', unit: 'meter', workTypes: [
+              { name: 'Cable Laying', key: 'cable_laying', duration: 60, defaultPrice: 300 },
+            ]},
+          ]
+        },
+        {
+          name: 'RO Water', key: 'ro_water', icon: '💧', description: 'RO repair, installation & AMC',
+          items: [
+            { name: 'RO Unit', key: 'ro_unit', unit: 'unit', workTypes: [
+              { name: 'Installation', key: 'installation', duration: 90, defaultPrice: 1500 },
+              { name: 'Repair', key: 'repair', duration: 60, defaultPrice: 800 },
+              { name: 'General Service', key: 'general_service', duration: 60, defaultPrice: 600 },
+            ]},
+            { name: 'Filters', key: 'filters', unit: 'unit', workTypes: [
+              { name: 'Filter Replacement', key: 'filter_replacement', duration: 30, defaultPrice: 500 },
+              { name: 'Membrane Replacement', key: 'membrane_replacement', duration: 45, defaultPrice: 800 },
+            ]},
+          ]
+        },
+        {
+          name: 'Beauty', key: 'beauty', icon: '💅', description: 'Salon at home — book instantly',
+          items: [
+            { name: 'Hair', key: 'hair', unit: 'session', workTypes: [
+              { name: 'Hair Cut', key: 'hair_cut', duration: 30, defaultPrice: 200 },
+              { name: 'Hair Color', key: 'hair_color', duration: 90, defaultPrice: 800 },
+              { name: 'Hair Spa', key: 'hair_spa', duration: 60, defaultPrice: 600 },
+            ]},
+            { name: 'Facial', key: 'facial', unit: 'session', workTypes: [
+              { name: 'Basic Facial', key: 'basic_facial', duration: 45, defaultPrice: 400 },
+              { name: 'Gold Facial', key: 'gold_facial', duration: 60, defaultPrice: 800 },
+            ]},
+            { name: 'Waxing', key: 'waxing', unit: 'session', workTypes: [
+              { name: 'Full Arms', key: 'full_arms', duration: 20, defaultPrice: 150 },
+              { name: 'Full Legs', key: 'full_legs', duration: 30, defaultPrice: 250 },
+            ]},
+          ]
+        },
+        {
+          name: 'Vehicle Repair', key: 'vehicle_repair', icon: '🔧', description: 'Bike & car service at your doorstep',
+          items: [
+            { name: 'Bike', key: 'bike', unit: 'unit', workTypes: [
+              { name: 'General Service', key: 'general_service', duration: 60, defaultPrice: 500 },
+              { name: 'Oil Change', key: 'oil_change', duration: 30, defaultPrice: 200 },
+              { name: 'Tyre Change', key: 'tyre_change', duration: 20, defaultPrice: 150 },
+            ]},
+            { name: 'Car', key: 'car', unit: 'unit', workTypes: [
+              { name: 'General Service', key: 'general_service', duration: 120, defaultPrice: 1500 },
+              { name: 'Oil Change', key: 'oil_change', duration: 45, defaultPrice: 500 },
+              { name: 'Battery Replacement', key: 'battery_replacement', duration: 30, defaultPrice: 1000 },
+            ]},
+          ]
+        },
+      ];
+
+      let catOrder = 0;
+      for (const catData of catalogData) {
+        const cat = new ServiceCategory({ name: catData.name, key: catData.key, icon: catData.icon, description: catData.description, isActive: true, sortOrder: catOrder++ });
+        await cat.save();
+        let itemOrder = 0;
+        for (const itemData of catData.items) {
+          const item = new ServiceItem({ categoryId: cat._id, categoryKey: cat.key, name: itemData.name, key: itemData.key, unit: itemData.unit, isActive: true, sortOrder: itemOrder++ });
+          await item.save();
+          let wtOrder = 0;
+          for (const wtData of itemData.workTypes) {
+            const wt = new WorkType({ serviceItemId: item._id, categoryId: cat._id, categoryKey: cat.key, itemKey: item.key, name: wtData.name, key: wtData.key, estimatedDuration: wtData.duration, defaultPrice: wtData.defaultPrice, isActive: true, sortOrder: wtOrder++ });
+            await wt.save();
+          }
+        }
+      }
+      console.log('🌱 Service Catalog seeded successfully!');
     }
 
     // Seed default providers if none exist

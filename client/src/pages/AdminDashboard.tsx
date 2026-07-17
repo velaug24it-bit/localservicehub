@@ -4,6 +4,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle } from 'lucide-react';
+import AdminServiceCatalogTab from '@/components/admin/AdminServiceCatalogTab';
 
 interface ProviderProfile {
   id: string;
@@ -35,7 +36,7 @@ interface PaymentRecord {
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'providers' | 'payments'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog'>('providers');
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -201,6 +202,16 @@ export default function AdminDashboard() {
           >
             💰 Payments Ledger
           </button>
+          <button
+            onClick={() => setActiveTab('catalog')}
+            className={`px-5 py-3 font-display font-medium text-sm border-b-2 transition-all flex items-center gap-2 ${
+              activeTab === 'catalog'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            📋 Service Catalog
+          </button>
         </div>
 
         {/* Content Tabs */}
@@ -344,6 +355,19 @@ export default function AdminDashboard() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Service Catalog Tab */}
+        {activeTab === 'catalog' && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-border">
+              <h3 className="font-semibold text-foreground">Service Catalog Management</h3>
+              <p className="text-xs text-muted-foreground">Manage categories, service items, and work types. Changes take effect immediately for all users.</p>
+            </div>
+            <div className="p-6">
+              <AdminServiceCatalogTab />
             </div>
           </div>
         )}

@@ -3,6 +3,7 @@ import { Provider } from '@/data/providers';
 import { Booking, useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import SmartPricingDisplay from '@/components/SmartPricingDisplay';
+import DynamicServiceSelector, { SelectedServiceItem, PriceBreakdown } from '@/components/DynamicServiceSelector';
 import { api } from '@/lib/api';
 
 interface BookingModalProps {
@@ -39,6 +40,9 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
   const [phone, setPhone] = useState(user?.phone || '');
   const [loading, setLoading] = useState(false);
   const [dynamicPrice, setDynamicPrice] = useState<number | null>(null);
+  // Dynamic service items from the new catalog engine
+  const [serviceItems, setServiceItems] = useState<SelectedServiceItem[]>([]);
+  const [priceBreakdown, setPriceBreakdown] = useState<PriceBreakdown | null>(null);
 
   // Mock payment details
   const [mockPaying, setMockPaying] = useState(false);
@@ -217,11 +221,21 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
   }) => {
     setLoading(true);
     try {
-      const finalPrice = dynamicPrice || basePrice;
+      // Derive serviceType label from dynamic items (backward-compatible)
+      const derivedServiceType = serviceItems.length > 0
+        ? (serviceItems.length === 1
+            ? `${serviceItems[0].serviceItemName} – ${serviceItems[0].workTypeName}`
+            : `Multiple Services (${serviceItems.length} items)`)
+        : serviceType;
+
+      const finalPrice = priceBreakdown
+        ? priceBreakdown.grandTotal
+        : (dynamicPrice || basePrice);
+
       const booking = await addBooking({
         providerId: String(provider.id),
         providerName: provider.name,
-        serviceType,
+        serviceType: derivedServiceType,
         category: provider.category,
         date,
         time,
@@ -231,6 +245,7 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
         price: `₹${finalPrice}`,
         customerName: user?.name || '',
         customerEmail: user?.email || '',
+        ...(serviceItems.length > 0 ? { serviceItems, priceBreakdown } : {}),
         ...paymentData
       });
       onConfirm(booking);
@@ -323,13 +338,16 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
           </div>
         </div>
         <form onSubmit={handleNextStep} className="p-5 space-y-4">
-          <div>
-            <label className="text-sm font-medium text-foreground mb-1 block">Service Type</label>
-            <select value={serviceType} onChange={e => setServiceType(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none">
-              {['Emergency Repair', 'Installation', 'Maintenance', 'Consultation'].map(s => <option key={s}>{s}</option>)}
-            </select>
-          </div>
+          {/* Dynamic Service Selector */}
+          <DynamicServiceSelector
+            providerId={String(provider.id)}
+            categoryKey={provider.category}
+            onServiceItemsChange={(items, bd) => {
+              setServiceItems(items);
+              setPriceBreakdown(bd);
+              if (bd) setDynamicPrice(bd.grandTotal);
+            }}
+          />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-foreground mb-1 block">Date</label>
@@ -345,8 +363,8 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
             </div>
           </div>
 
-          {/* Smart Pricing Engine */}
-          {date && (
+          {/* Legacy Smart Pricing (shown only if no dynamic items selected) */}
+          {date && serviceItems.length === 0 && (
             <SmartPricingDisplay
               category={provider.category}
               location={user?.location || provider.location}

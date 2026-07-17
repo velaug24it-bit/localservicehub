@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import ProviderProfileTab from '@/components/provider/ProviderProfileTab';
 import ProviderCalendar from '@/components/provider/ProviderCalendar';
+import ProviderPricingTab from '@/components/provider/ProviderPricingTab';
 import NotificationBell from '@/components/NotificationBell';
 import { trackingSteps } from '@/data/providers';
 import { Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2 } from 'lucide-react';
@@ -40,7 +41,7 @@ const ProviderDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<ProviderBooking[]>([]);
-  const [activeTab, setActiveTab] = useState<'bookings' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription' | 'pricing'>('bookings');
   const [filter, setFilter] = useState<'all' | 'Confirmed' | 'In Progress' | 'Completed' | 'Cancelled'>('all');
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -312,13 +313,13 @@ const ProviderDashboard = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-2xl overflow-x-auto no-scrollbar">
-          {(['bookings', 'queue', 'calendar', 'earnings', 'profile', 'subscription'] as const).map(tab => (
+        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-3xl overflow-x-auto no-scrollbar">
+          {(['bookings', 'queue', 'calendar', 'earnings', 'pricing', 'profile', 'subscription'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`flex-1 py-2.5 rounded-md text-sm font-semibold capitalize transition-all whitespace-nowrap px-3 ${
                 activeTab === tab ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'
               }`}>
-              {tab === 'queue' ? 'Queue' : tab === 'subscription' ? 'Subscription 💳' : tab === 'calendar' ? '📅 Calendar' : tab}
+              {tab === 'queue' ? 'Queue' : tab === 'subscription' ? 'Subscription 💳' : tab === 'calendar' ? '📅 Calendar' : tab === 'pricing' ? '💰 Pricing' : tab}
             </button>
           ))}
         </div>
@@ -368,6 +369,17 @@ const ProviderDashboard = () => {
         {/* Calendar Tab */}
         {activeTab === 'calendar' && (
           <ProviderCalendar bookings={bookings} />
+        )}
+
+        {/* Pricing Management Tab */}
+        {activeTab === 'pricing' && (
+          <div>
+            <h3 className="text-lg font-display font-semibold text-foreground mb-5 flex items-center gap-2">
+              💰 Pricing Management
+              <span className="text-xs font-normal text-muted-foreground">Set your prices for each service you offer</span>
+            </h3>
+            <ProviderPricingTab />
+          </div>
         )}
 
         {/* Queue Tab */}

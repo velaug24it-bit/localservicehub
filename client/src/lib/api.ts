@@ -78,10 +78,35 @@ export const api = {
     createReactivationOrder: () => 
       request('/api/payments/create-reactivation-order', { method: 'POST' })
   },
+  reviews: {
+    submit: (data: { bookingId: string; rating: number; comment?: string }) =>
+      request('/api/reviews', { method: 'POST', body: JSON.stringify(data) }),
+    listForProvider: (providerId: string) =>
+      request(`/api/providers/${providerId}/reviews`)
+  },
+  serviceCatalog: {
+    getCategories: () => request('/api/service-catalog/categories'),
+    getCategoryByKey: (key: string) => request(`/api/service-catalog/category-by-key/${key}`),
+    getItems: (categoryId: string) => request(`/api/service-catalog/categories/${categoryId}/items`),
+    getWorkTypes: (itemId: string) => request(`/api/service-catalog/items/${itemId}/work-types`),
+    getProviderPricing: (providerId: string) => request(`/api/service-catalog/provider/${providerId}/pricing`),
+    calculateBooking: (data: { providerId: string; serviceItems: { workTypeId: string; quantity: number }[] }) =>
+      request('/api/pricing/calculate-booking', { method: 'POST', body: JSON.stringify(data) })
+  },
+  providerPricing: {
+    list: () => request('/api/provider/pricing'),
+    add: (data: any) => request('/api/provider/pricing', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: { price?: number; isActive?: boolean }) =>
+      request(`/api/provider/pricing/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    remove: (id: string) => request(`/api/provider/pricing/${id}`, { method: 'DELETE' }),
+    toggle: (id: string) => request(`/api/provider/pricing/${id}/toggle`, { method: 'PUT' }),
+    bulkUpdate: (data: { percentage: number; categoryId?: string }) =>
+      request('/api/provider/pricing/bulk-update', { method: 'PUT', body: JSON.stringify(data) })
+  },
   admin: {
     providers: {
       list: () => request('/api/admin/providers'),
-      approve: (id: string, approved: boolean) => 
+      approve: (id: string, approved: boolean) =>
         request(`/api/admin/providers/${id}/approve`, { method: 'PUT', body: JSON.stringify({ approved }) })
     },
     payments: {
@@ -95,12 +120,20 @@ export const api = {
     },
     pricingLogs: {
       list: () => request('/api/admin/pricing-logs')
+    },
+    serviceCatalog: {
+      getCategories: () => request('/api/admin/service-catalog/categories'),
+      createCategory: (data: any) => request('/api/admin/service-catalog/categories', { method: 'POST', body: JSON.stringify(data) }),
+      updateCategory: (id: string, data: any) => request(`/api/admin/service-catalog/categories/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      deleteCategory: (id: string) => request(`/api/admin/service-catalog/categories/${id}`, { method: 'DELETE' }),
+      getItems: (categoryId?: string) => request(`/api/admin/service-catalog/items${categoryId ? `?categoryId=${categoryId}` : ''}`),
+      createItem: (data: any) => request('/api/admin/service-catalog/items', { method: 'POST', body: JSON.stringify(data) }),
+      updateItem: (id: string, data: any) => request(`/api/admin/service-catalog/items/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      deleteItem: (id: string) => request(`/api/admin/service-catalog/items/${id}`, { method: 'DELETE' }),
+      getWorkTypes: (serviceItemId?: string) => request(`/api/admin/service-catalog/work-types${serviceItemId ? `?serviceItemId=${serviceItemId}` : ''}`),
+      createWorkType: (data: any) => request('/api/admin/service-catalog/work-types', { method: 'POST', body: JSON.stringify(data) }),
+      updateWorkType: (id: string, data: any) => request(`/api/admin/service-catalog/work-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      deleteWorkType: (id: string) => request(`/api/admin/service-catalog/work-types/${id}`, { method: 'DELETE' })
     }
-  },
-  reviews: {
-    submit: (data: { bookingId: string; rating: number; comment?: string }) =>
-      request('/api/reviews', { method: 'POST', body: JSON.stringify(data) }),
-    listForProvider: (providerId: string) =>
-      request(`/api/providers/${providerId}/reviews`)
   }
 };

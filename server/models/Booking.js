@@ -1,5 +1,17 @@
 import mongoose from 'mongoose';
 
+// Sub-schema for individual service line items (new dynamic pricing)
+const ServiceLineItemSchema = new mongoose.Schema({
+  serviceItemId:   { type: String, default: '' },
+  serviceItemName: { type: String, default: '' },
+  workTypeId:      { type: String, default: '' },
+  workTypeName:    { type: String, default: '' },
+  quantity:        { type: Number, default: 1 },
+  unitPrice:       { type: Number, default: 0 },
+  subtotal:        { type: Number, default: 0 },
+  estimatedDuration: { type: Number, default: 0 } // minutes per unit
+}, { _id: false });
+
 const BookingSchema = new mongoose.Schema({
   trackingId: { type: String, required: true },
   userId: { type: String, required: true },
@@ -22,7 +34,21 @@ const BookingSchema = new mongoose.Schema({
   providerUpiId: { type: String, default: '' },
   razorpayOrderId: { type: String, default: '' },
   razorpayPaymentId: { type: String, default: '' },
-  razorpaySignature: { type: String, default: '' }
+  razorpaySignature: { type: String, default: '' },
+  // ── Dynamic Pricing Extension (optional — null for legacy bookings) ──────
+  serviceItems: { type: [ServiceLineItemSchema], default: undefined },
+  priceBreakdown: {
+    type: {
+      subtotal:           { type: Number, default: 0 },
+      bookingFee:         { type: Number, default: 50 },
+      platformFee:        { type: Number, default: 0 },
+      taxes:              { type: Number, default: 0 },
+      grandTotal:         { type: Number, default: 0 },
+      providerEarnings:   { type: Number, default: 0 },
+      platformCommission: { type: Number, default: 0 }
+    },
+    default: undefined
+  }
 }, {
   timestamps: true
 });
