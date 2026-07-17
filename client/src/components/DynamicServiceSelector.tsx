@@ -132,9 +132,9 @@ export default function DynamicServiceSelector({
         // Fallback: compute locally
         const subtotal = cart.reduce((s, c) => s + c.subtotal, 0);
         const bookingFee = 50;
-        const platformFee = Math.round(subtotal * 0.02);
-        const grandTotal = subtotal + bookingFee + platformFee;
-        const fb: PriceBreakdown = { subtotal, bookingFee, platformFee, taxes: 0, grandTotal, providerEarnings: subtotal - platformFee, platformCommission: platformFee + bookingFee };
+        const platformFee = 0;
+        const grandTotal = subtotal;
+        const fb: PriceBreakdown = { subtotal, bookingFee, platformFee, taxes: 0, grandTotal, providerEarnings: subtotal, platformCommission: bookingFee };
         setBreakdown(fb);
         onServiceItemsChange(cart, fb);
       } finally {
@@ -359,26 +359,19 @@ export default function DynamicServiceSelector({
           {(breakdown || calculating) && (
             <div className={`border-t border-border bg-primary/5 px-3 py-3 space-y-1.5 ${calculating ? 'opacity-60 animate-pulse' : ''}`}>
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Subtotal</span>
+                <span>Subtotal (Service Amount)</span>
                 <span>₹{(breakdown?.subtotal ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Booking Fee (Platform)</span>
-                <span>₹{breakdown?.bookingFee ?? 50}</span>
+                <span>Booking Fee (Platform Advance)</span>
+                <span className="font-semibold text-foreground">₹{breakdown?.bookingFee ?? 50}</span>
               </div>
-              {(breakdown?.platformFee ?? 0) > 0 && (
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Platform Fee (2%)</span>
-                  <span>₹{breakdown?.platformFee}</span>
-                </div>
-              )}
               <div className="flex justify-between text-sm font-bold text-foreground border-t border-border pt-1.5 mt-1">
-                <span>Grand Total</span>
+                <span>Total Service Price</span>
                 <span className="text-primary">₹{(breakdown?.grandTotal ?? 0).toLocaleString('en-IN')}</span>
               </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5">
-                <span>Provider earns</span>
-                <span>₹{(breakdown?.providerEarnings ?? 0).toLocaleString('en-IN')}</span>
+              <div className="text-[10px] text-muted-foreground leading-tight mt-1 pt-1 border-t border-dashed border-border/40">
+                ℹ️ The ₹{breakdown?.bookingFee ?? 50} booking fee is paid online now as an advance to confirm booking. The service total (₹{(breakdown?.grandTotal ?? 0).toLocaleString('en-IN')}) is payable directly to the provider.
               </div>
             </div>
           )}

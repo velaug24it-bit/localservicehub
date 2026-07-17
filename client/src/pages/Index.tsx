@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { providers, serviceCategories, districts, Provider } from '@/data/providers';
 import { useDbProviders } from '@/hooks/useDbProviders';
@@ -408,7 +408,11 @@ const Index = () => {
             </div>
             <div>
               <h4 className="font-semibold text-primary-foreground mb-3 text-sm">Company</h4>
-              <ul className="space-y-2 text-sm"><li>About Us</li><li>Contact</li><li>Privacy Policy</li></ul>
+              <ul className="space-y-2 text-sm">
+                <li><Link to="/contact" className="hover:underline hover:text-primary-foreground transition-colors">Contact</Link></li>
+                <li><Link to="/privacy" className="hover:underline hover:text-primary-foreground transition-colors">Privacy Policy</Link></li>
+                <li><Link to="/terms" className="hover:underline hover:text-primary-foreground transition-colors">Terms &amp; Conditions</Link></li>
+              </ul>
             </div>
           </div>
           <div className="border-t border-primary-foreground/10 pt-6 text-center text-sm">

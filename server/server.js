@@ -1581,7 +1581,6 @@ app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
     }
 
     const BOOKING_FEE = 50;
-    const PLATFORM_FEE_RATE = 0.02; // 2% of subtotal
 
     let subtotal = 0;
     const calculatedItems = [];
@@ -1622,10 +1621,10 @@ app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
       });
     }
 
-    const platformFee = Math.round(subtotal * PLATFORM_FEE_RATE);
-    const grandTotal = subtotal + BOOKING_FEE + platformFee;
-    const platformCommission = platformFee + BOOKING_FEE;
-    const providerEarnings = subtotal - platformFee;
+    const platformFee = 0;
+    const grandTotal = subtotal;
+    const platformCommission = BOOKING_FEE;
+    const providerEarnings = subtotal;
 
     res.json({
       serviceItems: calculatedItems,
