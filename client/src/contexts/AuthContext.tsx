@@ -37,6 +37,15 @@ export interface Booking {
     comment?: string;
     createdAt?: string;
   };
+  serviceItems?: any[];
+  priceBreakdown?: any;
+  materialsRequired?: boolean;
+  materialsTotal?: number;
+  materialsList?: any[];
+  shopId?: string | null;
+  deliveryMethod?: 'Pickup' | 'Delivery';
+  marketplaceOrderId?: string | null;
+  marketplaceOrder?: any;
 }
 
 interface AuthContextType {

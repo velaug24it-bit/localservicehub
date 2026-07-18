@@ -31,18 +31,23 @@ const BookingSchema = new mongoose.Schema({
   customerEmail: { type: String, required: true },
   advanceTransactionId: { type: String, default: '' },
   paymentStatus: { type: String, default: 'Unpaid', enum: ['Unpaid', 'Paid'] },
+  materialsPaymentStatus: { type: String, default: 'Unpaid', enum: ['Unpaid', 'Paid'] },
   providerUpiId: { type: String, default: '' },
   razorpayOrderId: { type: String, default: '' },
   razorpayPaymentId: { type: String, default: '' },
   razorpaySignature: { type: String, default: '' },
   // ── Dynamic Pricing Extension (optional — null for legacy bookings) ──────
   serviceItems: { type: [ServiceLineItemSchema], default: undefined },
+  materialsRequired: { type: Boolean, default: false },
+  marketplaceOrderId: { type: String, default: null },
+  materialsTotal: { type: Number, default: 0 },
   priceBreakdown: {
     type: {
       subtotal:           { type: Number, default: 0 },
       bookingFee:         { type: Number, default: 50 },
       platformFee:        { type: Number, default: 0 },
       taxes:              { type: Number, default: 0 },
+      materialsTotal:     { type: Number, default: 0 },
       grandTotal:         { type: Number, default: 0 },
       providerEarnings:   { type: Number, default: 0 },
       platformCommission: { type: Number, default: 0 }

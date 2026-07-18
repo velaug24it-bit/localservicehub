@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
 import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle } from 'lucide-react';
 import AdminServiceCatalogTab from '@/components/admin/AdminServiceCatalogTab';
+import AdminMarketplaceTab from '@/components/admin/AdminMarketplaceTab';
 
 interface ProviderProfile {
   id: string;
@@ -26,6 +27,10 @@ interface PaymentRecord {
   providerName: string;
   serviceType: string;
   price: string;
+  priceBreakdown?: any;
+  materialsRequired?: boolean;
+  materialsTotal?: number;
+  materialsPaymentStatus?: string;
   date: string;
   time: string;
   advanceTransactionId: string;
@@ -36,13 +41,12 @@ interface PaymentRecord {
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog' | 'marketplace'>('providers');
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Admin access check
     if (!user || user.userType !== 'admin') {
       navigate('/login', { replace: true });
       return;
@@ -67,14 +71,32 @@ export default function AdminDashboard() {
   const handleToggleApproval = async (id: string, currentStatus: boolean) => {
     try {
       await api.admin.providers.approve(id, !currentStatus);
-      toast({ 
-        title: !currentStatus ? 'Provider Approved' : 'Approval Revoked', 
+      toast({
+        title: !currentStatus ? 'Provider Approved' : 'Approval Revoked',
         description: `Successfully updated provider status.`
       });
-      // Update local state
       setProviders(prev => prev.map(p => p.id === id ? { ...p, approved: !currentStatus } : p));
     } catch (err: any) {
       toast({ title: 'Approval update failed', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleTogglePaymentStatus = async (id: string, type: 'provider' | 'materials', currentStatus: string) => {
+    try {
+      const newStatus = currentStatus === 'Paid' ? 'Unpaid' : 'Paid';
+      const payload = type === 'provider' 
+        ? { providerStatus: newStatus } 
+        : { materialsStatus: newStatus };
+        
+      await api.admin.payments.updateStatus(id, payload);
+      toast({ title: 'Payment Status Updated', description: `Marked as ${newStatus}` });
+      setPayments(prev => prev.map(p => p.id === id ? { 
+        ...p, 
+        paymentStatus: type === 'provider' ? newStatus : p.paymentStatus,
+        materialsPaymentStatus: type === 'materials' ? newStatus : p.materialsPaymentStatus
+      } : p));
+    } catch (err: any) {
+      toast({ title: 'Update failed', description: err.message, variant: 'destructive' });
     }
   };
 
@@ -87,7 +109,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Metrics
   const totalProviders = providers.length;
   const approvedProviders = providers.filter(p => p.approved).length;
   const pendingProviders = providers.filter(p => !p.approved).length;
@@ -106,13 +127,13 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      {/* Premium Header */}
+      {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-md sticky top-0 z-40 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-2xl">🛡️</span>
           <div>
             <h1 className="font-display font-bold text-lg leading-tight text-foreground">ServiceHub Admin</h1>
-            <p className="text-xs text-muted-foreground">System Control & Payments Ledger</p>
+            <p className="text-xs text-muted-foreground">System Control &amp; Payments Ledger</p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -120,7 +141,7 @@ export default function AdminDashboard() {
             <div className="text-sm font-semibold">{user?.name}</div>
             <div className="text-xs text-muted-foreground">{user?.email}</div>
           </div>
-          <button 
+          <button
             onClick={handleLogout}
             className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
             title="Log Out"
@@ -130,10 +151,9 @@ export default function AdminDashboard() {
         </div>
       </header>
 
-      {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
         {/* Quick Metrics */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-card rounded-xl border border-border p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
             <div className="p-3 rounded-lg bg-primary/10 text-primary">
               <Users className="w-6 h-6" />
@@ -143,7 +163,6 @@ export default function AdminDashboard() {
               <span className="text-xs text-muted-foreground uppercase font-semibold">Total Workers</span>
             </div>
           </div>
-
           <div className="bg-card rounded-xl border border-border p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
             <div className="p-3 rounded-lg bg-success/10 text-success">
               <UserCheck className="w-6 h-6" />
@@ -153,7 +172,6 @@ export default function AdminDashboard() {
               <span className="text-xs text-muted-foreground uppercase font-semibold">Approved Profiles</span>
             </div>
           </div>
-
           <div className="bg-card rounded-xl border border-border p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
             <div className="p-3 rounded-lg bg-warning/10 text-warning">
               <ShieldAlert className="w-6 h-6" />
@@ -163,7 +181,6 @@ export default function AdminDashboard() {
               <span className="text-xs text-muted-foreground uppercase font-semibold">Pending Approval</span>
             </div>
           </div>
-
           <div className="bg-card rounded-xl border border-border p-5 flex items-center gap-4 hover:shadow-md transition-shadow">
             <div className="p-3 rounded-lg bg-info/10 text-info">
               <CreditCard className="w-6 h-6" />
@@ -175,47 +192,35 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex border-b border-border">
-          <button
-            onClick={() => setActiveTab('providers')}
-            className={`px-5 py-3 font-display font-medium text-sm border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'providers'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            👷 Provider Profiles
-            {pendingProviders > 0 && (
-              <span className="bg-warning text-warning-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                {pendingProviders}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('payments')}
-            className={`px-5 py-3 font-display font-medium text-sm border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'payments'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            💰 Payments Ledger
-          </button>
-          <button
-            onClick={() => setActiveTab('catalog')}
-            className={`px-5 py-3 font-display font-medium text-sm border-b-2 transition-all flex items-center gap-2 ${
-              activeTab === 'catalog'
-                ? 'border-primary text-primary'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            📋 Service Catalog
-          </button>
+        {/* Tab Bar */}
+        <div className="flex border-b border-border overflow-x-auto no-scrollbar">
+          {([
+            { key: 'providers', label: '👷 Provider Profiles', badge: pendingProviders },
+            { key: 'payments', label: '💰 Payments Ledger', badge: 0 },
+            { key: 'catalog', label: '📋 Service Catalog', badge: 0 },
+            { key: 'marketplace', label: '🏪 Materials Marketplace', badge: 0 },
+          ] as const).map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-5 py-3 font-display font-medium text-sm border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+                activeTab === tab.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+              {tab.badge > 0 && (
+                <span className="bg-warning text-warning-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  {tab.badge}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
 
-        {/* Content Tabs */}
-        {activeTab === 'providers' ? (
+        {/* ── PROVIDERS TAB ── */}
+        {activeTab === 'providers' && (
           <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-border">
               <h3 className="font-semibold text-foreground">Worker Approvals</h3>
@@ -236,9 +241,7 @@ export default function AdminDashboard() {
                 <tbody className="divide-y divide-border">
                   {providers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground">
-                        No service providers registered yet.
-                      </td>
+                      <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground">No service providers registered yet.</td>
                     </tr>
                   ) : providers.map(p => (
                     <tr key={p.id} className="hover:bg-muted/10 transition-colors">
@@ -247,18 +250,14 @@ export default function AdminDashboard() {
                         <div className="text-xs text-muted-foreground">Registered: {new Date(p.createdAt).toLocaleDateString()}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="bg-secondary/15 text-secondary px-2 py-0.5 rounded text-xs font-semibold">
-                          {p.location}
-                        </span>
+                        <span className="bg-secondary/15 text-secondary px-2 py-0.5 rounded text-xs font-semibold">{p.location}</span>
                       </td>
                       <td className="px-6 py-4 text-xs space-y-0.5">
                         <div className="text-foreground">{p.email}</div>
                         <div className="text-muted-foreground">{p.phone}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <code className="text-xs text-primary bg-primary/5 px-2 py-0.5 rounded font-mono">
-                          {p.upiId || 'Not Configured'}
-                        </code>
+                        <code className="text-xs text-primary bg-primary/5 px-2 py-0.5 rounded font-mono">{p.upiId || 'Not Configured'}</code>
                       </td>
                       <td className="px-6 py-4">
                         {p.approved ? (
@@ -289,10 +288,13 @@ export default function AdminDashboard() {
               </table>
             </div>
           </div>
-        ) : (
+        )}
+
+        {/* ── PAYMENTS TAB ── */}
+        {activeTab === 'payments' && (
           <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-border">
-              <h3 className="font-semibold text-foreground">Payments & Bookings Ledger</h3>
+              <h3 className="font-semibold text-foreground">Payments &amp; Bookings Ledger</h3>
               <p className="text-xs text-muted-foreground">List of customer bookings showing Razorpay advance payments and direct service provider payments.</p>
             </div>
             <div className="overflow-x-auto">
@@ -309,9 +311,7 @@ export default function AdminDashboard() {
                 <tbody className="divide-y divide-border">
                   {payments.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">
-                        No transactions registered yet.
-                      </td>
+                      <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground">No transactions registered yet.</td>
                     </tr>
                   ) : payments.map(pm => (
                     <tr key={pm.id} className="hover:bg-muted/10 transition-colors">
@@ -325,31 +325,53 @@ export default function AdminDashboard() {
                       </td>
                       <td className="px-6 py-4 text-xs">
                         <div className="font-semibold text-foreground">{pm.providerName}</div>
-                        <div className="text-muted-foreground text-primary font-medium">{pm.serviceType}</div>
+                        <div className="text-primary font-medium">{pm.serviceType}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
                           <span className="text-sm font-bold text-success">₹50.00</span>
-                          <span className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                            Ref: {pm.advanceTransactionId || 'Mock / Offline'}
-                          </span>
+                          <span className="text-[10px] text-muted-foreground font-mono mt-0.5">Ref: {pm.advanceTransactionId || 'Mock / Offline'}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col items-start gap-1">
-                          <span className="text-xs font-semibold text-foreground">
-                            Fee: {pm.price}
-                          </span>
-                          {pm.paymentStatus === 'Paid' ? (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-success font-semibold px-1.5 py-0.5 rounded bg-success/10 border border-success/20">
-                              <CheckCircle className="w-3 h-3" /> PAID
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-semibold px-1.5 py-0.5 rounded bg-muted border border-border">
-                              <XCircle className="w-3 h-3" /> UNPAID
-                            </span>
-                          )}
+                          <span className="text-xs font-semibold text-foreground">Fee: ₹{pm.priceBreakdown?.subtotal || pm.price.replace(/\D/g, '')}</span>
+                          <button 
+                            onClick={() => handleTogglePaymentStatus(pm.id, 'provider', pm.paymentStatus)}
+                            className="hover:opacity-80 transition-opacity"
+                            title="Click to toggle payment status"
+                          >
+                            {pm.paymentStatus === 'Paid' ? (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-success font-semibold px-1.5 py-0.5 rounded bg-success/10 border border-success/20 cursor-pointer">
+                                <CheckCircle className="w-3 h-3" /> PAID
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-semibold px-1.5 py-0.5 rounded bg-muted border border-border cursor-pointer">
+                                <XCircle className="w-3 h-3" /> UNPAID
+                              </span>
+                            )}
+                          </button>
                         </div>
+                        {pm.materialsRequired && (
+                          <div className="flex flex-col items-start gap-1 mt-3 border-t border-border/50 pt-2">
+                            <span className="text-xs font-semibold text-foreground text-primary">Materials: ₹{pm.materialsTotal || 0}</span>
+                            <button 
+                              onClick={() => handleTogglePaymentStatus(pm.id, 'materials', pm.materialsPaymentStatus || 'Unpaid')}
+                              className="hover:opacity-80 transition-opacity"
+                              title="Click to toggle materials payment status"
+                            >
+                              {(pm.materialsPaymentStatus || 'Unpaid') === 'Paid' ? (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-success font-semibold px-1.5 py-0.5 rounded bg-success/10 border border-success/20 cursor-pointer">
+                                  <CheckCircle className="w-3 h-3" /> PAID
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground font-semibold px-1.5 py-0.5 rounded bg-muted border border-border cursor-pointer">
+                                  <XCircle className="w-3 h-3" /> UNPAID
+                                </span>
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -359,7 +381,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {/* Service Catalog Tab */}
+        {/* ── SERVICE CATALOG TAB ── */}
         {activeTab === 'catalog' && (
           <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-border">
@@ -368,6 +390,19 @@ export default function AdminDashboard() {
             </div>
             <div className="p-6">
               <AdminServiceCatalogTab />
+            </div>
+          </div>
+        )}
+
+        {/* ── MATERIALS MARKETPLACE TAB ── */}
+        {activeTab === 'marketplace' && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-border">
+              <h3 className="font-semibold text-foreground">Materials Marketplace Administration</h3>
+              <p className="text-xs text-muted-foreground">Manage verified shops, inventory catalogs, prices, and track material purchases.</p>
+            </div>
+            <div className="p-6">
+              <AdminMarketplaceTab />
             </div>
           </div>
         )}

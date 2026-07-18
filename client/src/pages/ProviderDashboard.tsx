@@ -8,7 +8,7 @@ import ProviderCalendar from '@/components/provider/ProviderCalendar';
 import ProviderPricingTab from '@/components/provider/ProviderPricingTab';
 import NotificationBell from '@/components/NotificationBell';
 import { trackingSteps } from '@/data/providers';
-import { Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2 } from 'lucide-react';
+import { Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Package } from 'lucide-react';
 
 interface ProviderBooking {
   id: string;
@@ -27,6 +27,13 @@ interface ProviderBooking {
   payment_status: string;
   current_step: number;
   created_at: string;
+  providerName?: string;
+  materialsRequired?: boolean;
+  materialsTotal?: number;
+  materialsList?: any[];
+  deliveryMethod?: 'Pickup' | 'Delivery';
+  marketplaceOrder?: any;
+  priceBreakdown?: any;
 }
 
 interface BillingStatus {
@@ -37,11 +44,25 @@ interface BillingStatus {
   amountDue: number;
 }
 
+const parsePrice = (price: string): number => {
+  const numbers = price.match(/\d+/g);
+  if (!numbers || numbers.length === 0) return 0;
+  return parseInt(numbers[0]);
+};
+
+const getProviderLabourPrice = (b: ProviderBooking): number => {
+  if (b.priceBreakdown && typeof b.priceBreakdown.subtotal === 'number') {
+    return b.priceBreakdown.subtotal;
+  }
+  return parsePrice(b.price);
+};
+
 const ProviderDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<ProviderBooking[]>([]);
   const [activeTab, setActiveTab] = useState<'bookings' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription' | 'pricing'>('bookings');
+  const [openMaterialsId, setOpenMaterialsId] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'Confirmed' | 'In Progress' | 'Completed' | 'Cancelled'>('all');
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -74,7 +95,14 @@ const ProviderDashboard = () => {
           status: b.status,
           payment_status: b.paymentStatus || 'Unpaid',
           current_step: b.currentStep,
-          created_at: b.createdAt
+          created_at: b.createdAt,
+          providerName: b.providerName,
+          materialsRequired: b.materialsRequired,
+          materialsTotal: b.materialsTotal,
+          materialsList: b.materialsList,
+          deliveryMethod: b.deliveryMethod,
+          marketplaceOrder: b.marketplaceOrder,
+          priceBreakdown: b.priceBreakdown
         }));
         setBookings(mapped);
       }
@@ -230,19 +258,14 @@ const ProviderDashboard = () => {
 
   const activeWork = bookings.filter(b => b.status === 'In Progress');
 
-  const parsePrice = (price: string): number => {
-    const numbers = price.match(/\d+/g);
-    if (!numbers || numbers.length === 0) return 0;
-    return parseInt(numbers[0]);
-  };
 
   const totalEarnings = bookings
     .filter(b => b.payment_status === 'Paid')
-    .reduce((sum, b) => sum + parsePrice(b.price), 0);
+    .reduce((sum, b) => sum + getProviderLabourPrice(b), 0);
 
   const pendingPayment = bookings
     .filter(b => b.status !== 'Cancelled' && b.payment_status !== 'Paid')
-    .reduce((sum, b) => sum + parsePrice(b.price), 0);
+    .reduce((sum, b) => sum + getProviderLabourPrice(b), 0);
 
   const stats = {
     total: bookings.length,
@@ -407,7 +430,19 @@ const ProviderDashboard = () => {
                             <span className="font-display font-semibold text-foreground">{b.customer_name}</span>
                             <span className="text-xs text-muted-foreground ml-2">#{b.tracking_id}</span>
                           </div>
-                          <div className="text-sm font-semibold text-foreground">{b.price}</div>
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="text-sm font-semibold text-foreground">Labour: ₹{getProviderLabourPrice(b).toLocaleString()}</div>
+                            {b.materialsRequired && (
+                              <button
+                                onClick={() => setOpenMaterialsId(openMaterialsId === b.id ? null : b.id)}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full bg-teal-500/10 text-teal-600 border border-teal-500/20 hover:bg-teal-500/20 transition-colors"
+                              >
+                                <Package className="w-3 h-3" />
+                                🛒 Materials to Buy
+                                {openMaterialsId === b.id ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-2">
                           <span>🔧 {b.service_type}</span>
@@ -418,6 +453,59 @@ const ProviderDashboard = () => {
                         {b.description && (
                           <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg p-2 mb-2">{b.description}</p>
                         )}
+
+                        {/* Materials Panel */}
+                        {b.materialsRequired && openMaterialsId === b.id && (() => {
+                          const itemsToDisplay = (b.materialsList && b.materialsList.length > 0)
+                            ? b.materialsList
+                            : (b.marketplaceOrder?.products || []).map((p: any) => ({
+                                brandName: p.brandName,
+                                productName: p.productName,
+                                quantity: p.quantity,
+                                subtotal: p.subtotal,
+                                finalUnitPrice: p.finalUnitPrice || p.price,
+                                shopName: b.marketplaceOrder?.shopName,
+                                deliveryMethod: b.marketplaceOrder?.deliveryMethod
+                              }));
+                          const displayDeliveryMethod = b.deliveryMethod || b.marketplaceOrder?.deliveryMethod;
+
+                          return (
+                            <div className="mb-3 rounded-xl border border-teal-500/20 bg-teal-500/5 overflow-hidden">
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-teal-500/10 border-b border-teal-500/20">
+                                <span className="text-xs font-bold uppercase tracking-wider text-teal-700 dark:text-teal-400">🛒 Materials You Need to Procure</span>
+                                <span className="text-xs font-bold text-teal-700 dark:text-teal-400">₹{(b.materialsTotal || 0).toLocaleString()} total</span>
+                              </div>
+                              <div className="divide-y divide-teal-500/10">
+                                {itemsToDisplay.length > 0 ? (
+                                  itemsToDisplay.map((item: any, i: number) => (
+                                    <div key={i} className="px-4 py-3 flex items-center justify-between gap-3">
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-semibold text-foreground">{item.brandName} — {item.productName}</div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">
+                                          {item.shopName && <span className="mr-2">🏪 {item.shopName}</span>}
+                                          <span>Qty: {item.quantity}</span>
+                                          {item.deliveryMethod && <span className="ml-2">🚚 {item.deliveryMethod === 'Delivery' ? 'Delivery' : 'Pickup from shop'}</span>}
+                                        </div>
+                                      </div>
+                                      <div className="text-right shrink-0">
+                                        <div className="text-sm font-bold text-foreground">₹{(item.subtotal || 0).toLocaleString()}</div>
+                                        <div className="text-[10px] text-muted-foreground">₹{(item.finalUnitPrice || item.price || 0).toLocaleString()} each</div>
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="px-4 py-3 text-xs text-muted-foreground">No item details found. Check marketplace order.</div>
+                                )}
+                              </div>
+                              {displayDeliveryMethod && (
+                                <div className="px-4 py-2 bg-teal-500/10 border-t border-teal-500/20 text-xs text-teal-700 dark:text-teal-400 font-medium">
+                                  Delivery Method: <strong>{displayDeliveryMethod === 'Delivery' ? '🚚 Delivery to job site' : '🏪 Pickup from shop'}</strong>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         <div className="flex gap-2">
                           <button onClick={() => updateBookingStatus(b.id, 'In Progress', 1)}
                             className="px-3 py-1.5 rounded-lg bg-warning/10 text-warning text-xs font-semibold hover:bg-warning/20 transition-colors">
@@ -466,9 +554,9 @@ const ProviderDashboard = () => {
             </div>
 
             <div className="bg-card rounded-xl border border-border p-6">
-              <h3 className="font-display font-semibold text-foreground mb-4">Payment Settlement</h3>
+              <h3 className="font-display font-semibold text-foreground mb-4">Labour Payment Settlement</h3>
               {bookings.filter(b => b.status === 'Completed' || b.status === 'In Progress').length === 0 ? (
-                <p className="text-muted-foreground text-sm">No payment records yet.</p>
+                <p className="text-muted-foreground text-sm">No labour payment records yet.</p>
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -477,7 +565,7 @@ const ProviderDashboard = () => {
                         <th className="pb-3 text-muted-foreground font-medium">Customer</th>
                         <th className="pb-3 text-muted-foreground font-medium">Service</th>
                         <th className="pb-3 text-muted-foreground font-medium">Date</th>
-                        <th className="pb-3 text-muted-foreground font-medium">Amount</th>
+                        <th className="pb-3 text-muted-foreground font-medium">Labour Amount</th>
                         <th className="pb-3 text-muted-foreground font-medium">Status</th>
                       </tr>
                     </thead>
@@ -489,7 +577,7 @@ const ProviderDashboard = () => {
                             <td className="py-3 text-foreground">{b.customer_name}</td>
                             <td className="py-3 text-muted-foreground">{b.service_type}</td>
                             <td className="py-3 text-muted-foreground">{b.date}</td>
-                            <td className="py-3 font-semibold text-foreground">{b.price}</td>
+                            <td className="py-3 font-semibold text-foreground">₹{getProviderLabourPrice(b).toLocaleString()}</td>
                             <td className="py-3">
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 b.payment_status === 'Paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
@@ -499,6 +587,70 @@ const ProviderDashboard = () => {
                             </td>
                           </tr>
                         ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-card rounded-xl border border-border p-6">
+              <h3 className="font-display font-semibold text-foreground mb-4 flex items-center gap-2">
+                <span>🛒</span> Materials Orders Breakdown
+              </h3>
+              {bookings.filter(b => b.materialsRequired && (b.materialsList?.length > 0 || b.marketplaceOrder?.products?.length > 0)).length === 0 ? (
+                <p className="text-muted-foreground text-sm">No materials orders yet.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left">
+                        <th className="pb-3 text-muted-foreground font-medium">Client (Customer)</th>
+                        <th className="pb-3 text-muted-foreground font-medium">Store (Partner Shop)</th>
+                        <th className="pb-3 text-muted-foreground font-medium">Product / Quantity</th>
+                        <th className="pb-3 text-muted-foreground font-medium">Materials Cost</th>
+                        <th className="pb-3 text-muted-foreground font-medium">Delivery Method</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bookings
+                        .filter(b => b.materialsRequired && (b.materialsList?.length > 0 || b.marketplaceOrder?.products?.length > 0))
+                        .map(b => {
+                          const items = b.materialsList || b.marketplaceOrder?.products || [];
+                          return (
+                            <tr key={b.id} className="border-b border-border last:border-0 hover:bg-muted/5 transition-colors">
+                              <td className="py-3 text-foreground font-medium">
+                                <div>{b.customer_name}</div>
+                                <div className="text-[10px] text-muted-foreground">{b.customer_email}</div>
+                              </td>
+                              <td className="py-3 text-muted-foreground font-semibold">
+                                {b.marketplaceOrder?.shopName || 'Partner Shop'}
+                              </td>
+                              <td className="py-3 text-muted-foreground">
+                                <ul className="space-y-1">
+                                  {items.map((item: any, idx: number) => (
+                                    <li key={idx} className="text-xs">
+                                      <span className="font-medium text-foreground">{item.brandName} - {item.productName}</span> 
+                                      <span className="text-muted-foreground"> (x{item.quantity} @ ₹{(item.finalUnitPrice || item.price || 0).toLocaleString()})</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </td>
+                              <td className="py-3 font-semibold text-foreground">
+                                <div>₹{(b.materialsTotal || 0).toLocaleString()}</div>
+                                <div className="text-[9px] text-muted-foreground font-normal">
+                                  (Labour: ₹{getProviderLabourPrice(b).toLocaleString()})
+                                </div>
+                              </td>
+                              <td className="py-3">
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                  b.deliveryMethod === 'Delivery' ? 'bg-info/10 text-info' : 'bg-primary/10 text-primary'
+                                }`}>
+                                  {b.deliveryMethod || 'Pickup'}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -623,6 +775,8 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
   onUpdateStatus: (id: string, status: string, step: number) => void;
   highlight?: boolean;
 }) {
+  const [showQr, setShowQr] = useState(false);
+  const { user } = useAuth();
   const steps = trackingSteps[b.category] || trackingSteps.plumbing;
   const currentStep = b.current_step ?? 0;
   const progress = b.status === 'Completed'
@@ -663,8 +817,10 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
           </div>
         </div>
         <div className="text-right text-sm">
-          <div className="font-semibold text-foreground">{b.price}</div>
-          <div className="text-xs text-muted-foreground">{b.date} at {b.time}</div>
+          <div className="font-semibold text-foreground">
+            Labour: ₹{getProviderLabourPrice(b).toLocaleString()}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">{b.date} at {b.time}</div>
         </div>
       </div>
 
@@ -807,6 +963,200 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Provider Materials Pickups & Invoices */}
+      {b.materialsRequired && (
+        <div className="mt-3 p-4 bg-muted/40 border border-border rounded-xl space-y-3 text-xs">
+          <div className="flex items-center justify-between border-b border-border/60 pb-1.5">
+            <span className="font-bold text-foreground inline-flex items-center gap-1">
+              📦 Materials Marketplace Pickup
+            </span>
+            <span className="bg-primary/10 text-primary text-[10px] px-2 py-0.5 rounded-full font-bold">
+              {b.deliveryMethod === 'Pickup' ? '🏪 Self Pickup Required' : '🚚 Direct Shop Delivery'}
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            <div className="space-y-1">
+              <div className="font-semibold text-foreground">
+                🏪 Store: {b.marketplaceOrder?.shopName || 'Partner Shop'}
+              </div>
+              {b.marketplaceOrder?.shopId?.address && (
+                <div className="text-muted-foreground text-[11px]">
+                  📍 Address: {b.marketplaceOrder.shopId.address}
+                </div>
+              )}
+              {b.marketplaceOrder?.shopId?.phone && (
+                <div className="text-muted-foreground text-[11px]">
+                  📞 Store Contact: {b.marketplaceOrder.shopId.phone}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-card border border-border/50 rounded-lg p-2.5">
+              <span className="font-semibold text-muted-foreground text-[10px] uppercase block mb-1">Items &amp; Pricing</span>
+              <ul className="space-y-1.5 text-[11px]">
+                {(b.materialsList || b.marketplaceOrder?.products || []).map((prod: any, idx: number) => (
+                  <li key={idx} className="text-muted-foreground flex justify-between items-center">
+                    <div>
+                      <span className="text-foreground font-medium">{prod.brandName} - {prod.productName}</span>
+                      <span className="text-[10px] block">Qty: {prod.quantity} @ ₹{(prod.finalUnitPrice || prod.price || 0).toLocaleString()} each</span>
+                    </div>
+                    <span className="font-semibold text-foreground">₹{((prod.finalUnitPrice || prod.price || 0) * prod.quantity).toLocaleString()}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="border-t border-dashed border-border/60 mt-2 pt-2 flex justify-between font-bold text-foreground">
+                <span>Materials Total</span>
+                <span>₹{(b.materialsTotal || 0).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              {b.deliveryMethod === 'Pickup' && b.marketplaceOrder?.shopId?.address && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                    (b.marketplaceOrder?.shopName || '') + ' ' + (b.marketplaceOrder?.shopId?.address || '')
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2.5 py-1.5 rounded-lg bg-info/10 text-info font-bold text-[10px] hover:bg-info/20 transition-all flex items-center gap-1"
+                >
+                  📍 Navigate (GPS)
+                </a>
+              )}
+              {b.deliveryMethod === 'Pickup' && (
+                <button
+                  type="button"
+                  onClick={() => setShowQr(true)}
+                  className="px-2.5 py-1.5 rounded-lg bg-primary/10 text-primary font-bold text-[10px] hover:bg-primary/20 transition-all"
+                >
+                  🔑 View Pickup QR
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Labour Invoice Download */}
+      <div className="mt-3 flex justify-between items-center bg-muted/20 border border-border/40 p-2.5 rounded-xl">
+        <span className="text-[11px] font-semibold text-muted-foreground">Labour Invoice:</span>
+        <button
+          type="button"
+          onClick={() => {
+            const title = 'Provider Service Labour Invoice';
+            const fromInfo = `
+              <strong>Provider Name:</strong> ${user?.name || b.providerName || 'ServiceHub Provider'}<br/>
+              <strong>Service Category:</strong> ${b.category}<br/>
+              <strong>Service Type:</strong> ${b.service_type}<br/>
+            `;
+            const labourVal = b.priceBreakdown?.subtotal || parseInt(String(b.price).replace(/\D/g, '')) || 500;
+            const itemsHtml = `
+              <tr>
+                <td style="padding: 12px; border-bottom: 1px solid #eee;">Service Labour charges (Completed by ${user?.name || b.providerName || 'ServiceHub Provider'})</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">1</td>
+                <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">₹${labourVal}</td>
+              </tr>
+            `;
+            const summaryHtml = `
+              <div style="text-align: right; margin-top: 20px;">
+                <p><strong>Labour Subtotal:</strong> ₹${labourVal}</p>
+                <p style="font-size: 16px; color: #4f46e5;"><strong>Total Payable to Provider:</strong> ₹${labourVal}</p>
+              </div>
+            `;
+
+            const invoiceHtml = `
+              <html>
+              <head>
+                <title>Invoice - ${b.tracking_id}</title>
+                <style>
+                  body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; }
+                  .invoice-box { max-width: 800px; margin: auto; padding: 30px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0, 0, 0, .15); border-radius: 10px; }
+                  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #6366f1; padding-bottom: 20px; }
+                  .logo { font-size: 24px; font-weight: bold; color: #6366f1; }
+                  .details-table { width: 100%; margin-top: 20px; text-align: left; border-collapse: collapse; }
+                </style>
+              </head>
+              <body>
+                <div class="invoice-box">
+                  <div class="header">
+                    <div class="logo">ServiceHub</div>
+                    <div>
+                      <h2 style="margin: 0; color: #111827;">${title}</h2>
+                      <p style="margin: 5px 0 0 0; font-size: 12px; text-align: right; color: #6b7280;">Date: ${b.date}</p>
+                    </div>
+                  </div>
+                  <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; font-size: 13px; line-height: 1.6;">
+                    <div>
+                      <h4 style="margin: 0 0 10px 0; color: #4f46e5; text-transform: uppercase; font-size: 11px;">Billing Details</h4>
+                      ${fromInfo}
+                    </div>
+                    <div>
+                      <h4 style="margin: 0 0 10px 0; color: #4f46e5; text-transform: uppercase; font-size: 11px;">Customer Info</h4>
+                      <strong>Name:</strong> ${b.customer_name}<br/>
+                      <strong>Email:</strong> ${b.customer_email || ''}<br/>
+                      <strong>Location:</strong> ${b.location}<br/>
+                    </div>
+                  </div>
+                  <table class="details-table" style="font-size: 13px;">
+                    <thead>
+                      <tr style="background: #f9fafb; color: #4b5563;">
+                        <th style="padding: 12px;">Description</th>
+                        <th style="padding: 12px; text-align: right; width: 80px;">Qty</th>
+                        <th style="padding: 12px; text-align: right; width: 100px;">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${itemsHtml}
+                    </tbody>
+                  </table>
+                  ${summaryHtml}
+                  <div style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center;">
+                    Thank you for choosing ServiceHub. This is a computer generated invoice and does not require signature.
+                  </div>
+                </div>
+                <script>
+                  window.onload = function() { window.print(); }
+                </script>
+              </body>
+              </html>
+            `;
+
+            const blob = new Blob([invoiceHtml], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Invoice_LABOUR_${b.tracking_id}.html`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          }}
+          className="px-2.5 py-1 rounded-lg bg-card border border-border text-[10px] font-bold text-foreground hover:bg-muted transition-all"
+        >
+          📄 Download Labour Invoice
+        </button>
+      </div>
+
+      {/* Pickup QR Modal display */}
+      {showQr && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowQr(false)}>
+          <div className="bg-card p-5 rounded-2xl max-w-xs w-full text-center space-y-4 border border-border" onClick={e => e.stopPropagation()}>
+            <h4 className="font-bold text-sm text-foreground">Pickup Verification QR Code</h4>
+            <div className="flex justify-center">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(b.marketplaceOrder?.pickupQrCode || `QR_SH_${b.id.slice(-6).toUpperCase()}`)}`} 
+                alt="Pickup QR Code" 
+                className="w-36 h-36 border border-border rounded-xl bg-white p-2"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">Store keeper will scan this to release items.</p>
+            <button onClick={() => setShowQr(false)} className="w-full py-1.5 bg-muted text-foreground text-xs font-semibold rounded-lg hover:bg-muted/80">
+              Close
+            </button>
+          </div>
         </div>
       )}
 

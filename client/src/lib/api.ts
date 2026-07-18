@@ -103,6 +103,17 @@ export const api = {
     bulkUpdate: (data: { percentage: number; categoryId?: string }) =>
       request('/api/provider/pricing/bulk-update', { method: 'PUT', body: JSON.stringify(data) })
   },
+  marketplace: {
+    getProducts: (params: { categoryKey: string; serviceItemKey: string; workTypeKey?: string; location?: string; sortBy?: string; brand?: string; lat?: number; lng?: number; page?: number; limit?: number }) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== null) q.append(k, String(v)); });
+      return request(`/api/marketplace/products?${q.toString()}`);
+    },
+    getShops: (location?: string) => request(`/api/marketplace/shops/nearby?location=${location || ''}`),
+    calculateCheckout: (data: { shopId: string; products: { productId: string; quantity: number }[] }) =>
+      request('/api/marketplace/calculate-checkout', { method: 'POST', body: JSON.stringify(data) }),
+    getInvoices: (bookingId: string) => request(`/api/marketplace/invoices/booking/${bookingId}`)
+  },
   admin: {
     providers: {
       list: () => request('/api/admin/providers'),
@@ -110,7 +121,9 @@ export const api = {
         request(`/api/admin/providers/${id}/approve`, { method: 'PUT', body: JSON.stringify({ approved }) })
     },
     payments: {
-      list: () => request('/api/admin/payments')
+      list: () => request('/api/admin/payments'),
+      updateStatus: (id: string, data: { providerStatus?: string, materialsStatus?: string }) => 
+        request(`/api/admin/payments/${id}`, { method: 'PUT', body: JSON.stringify(data) })
     },
     reactivationPayments: {
       list: () => request('/api/admin/reactivation-payments')
@@ -134,6 +147,37 @@ export const api = {
       createWorkType: (data: any) => request('/api/admin/service-catalog/work-types', { method: 'POST', body: JSON.stringify(data) }),
       updateWorkType: (id: string, data: any) => request(`/api/admin/service-catalog/work-types/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
       deleteWorkType: (id: string) => request(`/api/admin/service-catalog/work-types/${id}`, { method: 'DELETE' })
+    },
+    marketplace: {
+      shops: {
+        list: () => request('/api/admin/marketplace/shops'),
+        create: (data: any) => request('/api/admin/marketplace/shops', { method: 'POST', body: JSON.stringify(data) }),
+        update: (id: string, data: any) => request(`/api/admin/marketplace/shops/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        delete: (id: string) => request(`/api/admin/marketplace/shops/${id}`, { method: 'DELETE' })
+      },
+      products: {
+        list: () => request('/api/admin/marketplace/products'),
+        create: (data: any) => request('/api/admin/marketplace/products', { method: 'POST', body: JSON.stringify(data) }),
+        update: (id: string, data: any) => request(`/api/admin/marketplace/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        delete: (id: string) => request(`/api/admin/marketplace/products/${id}`, { method: 'DELETE' })
+      },
+      brands: {
+        list: () => request('/api/admin/marketplace/brands'),
+        create: (data: any) => request('/api/admin/marketplace/brands', { method: 'POST', body: JSON.stringify(data) })
+      },
+      inventory: {
+        list: (shopId?: string) => request(`/api/admin/marketplace/inventory${shopId ? `?shopId=${shopId}` : ''}`),
+        create: (data: any) => request('/api/admin/marketplace/inventory', { method: 'POST', body: JSON.stringify(data) }),
+        update: (id: string, data: any) => request(`/api/admin/marketplace/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+        delete: (id: string) => request(`/api/admin/marketplace/inventory/${id}`, { method: 'DELETE' })
+      },
+      orders: {
+        list: () => request('/api/admin/marketplace/orders'),
+        update: (id: string, data: any) => request(`/api/admin/marketplace/orders/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+      },
+      analytics: {
+        get: () => request('/api/admin/marketplace/analytics')
+      }
     }
   }
 };

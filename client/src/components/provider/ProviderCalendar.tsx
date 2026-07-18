@@ -14,6 +14,8 @@ interface ProviderBooking {
   phone: string;
   location: string;
   price: string;
+  priceBreakdown?: { subtotal?: number; [key: string]: any };
+  materialsTotal?: number;
   status: string;
   payment_status: string;
   current_step: number;
@@ -299,7 +301,10 @@ export default function ProviderCalendar({ bookings }: Props) {
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
                             <span className="text-[10px] text-muted-foreground font-mono tracking-wide">{b.tracking_id}</span>
                             <span className={`text-xs font-bold ${b.payment_status === 'Paid' ? 'text-success' : 'text-warning'}`}>
-                              {b.price} · {b.payment_status}
+                              Labour: ₹{(
+                                b.priceBreakdown?.subtotal ||
+                                parseInt(String(b.price).replace(/\D/g, '')) - (b.materialsTotal || 0)
+                              ).toLocaleString('en-IN')} · {b.payment_status}
                             </span>
                           </div>
                         </div>

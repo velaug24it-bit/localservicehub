@@ -27,6 +27,12 @@ import ServiceCategory from './models/ServiceCategory.js';
 import ServiceItem from './models/ServiceItem.js';
 import WorkType from './models/WorkType.js';
 import ProviderPricing from './models/ProviderPricing.js';
+import Brand from './models/Brand.js';
+import PartnerShop from './models/PartnerShop.js';
+import Product from './models/Product.js';
+import ShopInventory from './models/ShopInventory.js';
+import MarketplaceOrder from './models/MarketplaceOrder.js';
+import Invoice from './models/Invoice.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -480,10 +486,12 @@ app.get('/api/bookings', auth, async (req, res) => {
         { providerId: req.userId }
       ]
     }).sort({ createdAt: -1 });
-
-    // Fetch and attach reviews for completed bookings
-    const bookingsWithReviews = await Promise.all(bookings.map(async (b) => {
+ 
+    // Fetch and attach reviews + marketplace orders for bookings
+    const bookingsWithDetails = await Promise.all(bookings.map(async (b) => {
       const bObj = b.toJSON();
+      
+      // Attach review
       if (b.status === 'Completed') {
         const review = await Review.findOne({ bookingId: b.id });
         if (review) {
@@ -494,10 +502,19 @@ app.get('/api/bookings', auth, async (req, res) => {
           };
         }
       }
+
+      // Attach Marketplace Order
+      if (b.marketplaceOrderId) {
+        const order = await MarketplaceOrder.findById(b.marketplaceOrderId).populate('shopId');
+        if (order) {
+          bObj.marketplaceOrder = order.toJSON();
+        }
+      }
+
       return bObj;
     }));
-
-    res.json(bookingsWithReviews);
+ 
+    res.json(bookingsWithDetails);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -617,6 +634,17 @@ app.post('/api/bookings', auth, async (req, res) => {
       }
     }
 
+    // Extract marketplace specific booking details
+    const {
+      materialsRequired = false,
+      materialsTotal = 0,
+      materialsList = [],
+      shopId = null,
+      deliveryMethod = 'Pickup',
+      serviceItems,
+      priceBreakdown
+    } = req.body;
+
     const booking = new Booking({
       trackingId,
       userId: req.userId,
@@ -637,12 +665,132 @@ app.post('/api/bookings', auth, async (req, res) => {
       advanceTransactionId: razorpayPaymentId || advanceTransactionId || '',
       providerUpiId: finalProviderUpiId,
       paymentStatus: 'Unpaid',
+      materialsPaymentStatus: materialsRequired ? 'Paid' : 'Unpaid',
       razorpayOrderId: razorpayOrderId || '',
       razorpayPaymentId: razorpayPaymentId || '',
-      razorpaySignature: razorpaySignature || ''
+      razorpaySignature: razorpaySignature || '',
+      // Extensions
+      serviceItems,
+      materialsRequired,
+      materialsTotal,
+      priceBreakdown
     });
 
     await booking.save();
+
+    // If materials are required, create Marketplace Order & deduct stock
+    if (materialsRequired && shopId && materialsList.length > 0) {
+      const shop = await PartnerShop.findById(shopId);
+      if (shop) {
+        // Validate and deduct stock
+        const orderedProducts = [];
+        let matSubtotal = 0;
+        let deliveryCharge = 0;
+
+        for (const item of materialsList) {
+          const inv = await ShopInventory.findOne({ shopId, productId: item.productId, isActive: true });
+          if (inv) {
+            // Deduct stock
+            inv.stock = Math.max(0, inv.stock - item.quantity);
+            await inv.save();
+
+            const finalUnitPrice = Math.round(inv.price * (1 - (inv.discount || 0) / 100));
+            const sub = finalUnitPrice * item.quantity;
+            matSubtotal += sub;
+            deliveryCharge = Math.max(deliveryCharge, inv.deliveryCharge || 0);
+
+            orderedProducts.push({
+              productId: item.productId,
+              productName: item.productName,
+              brandName: item.brandName,
+              quantity: item.quantity,
+              price: inv.price,
+              discount: inv.discount,
+              finalUnitPrice,
+              subtotal: sub
+            });
+          }
+        }
+
+        const order = new MarketplaceOrder({
+          bookingId: booking._id,
+          customerId: req.userId,
+          shopId,
+          shopName: shop.name,
+          products: orderedProducts,
+          subtotal: matSubtotal,
+          deliveryCharge,
+          grandTotal: matSubtotal + deliveryCharge,
+          deliveryMethod: deliveryMethod || 'Pickup',
+          orderStatus: 'Placed',
+          paymentStatus: 'Paid',
+          pickupQrCode: 'QR_SH_' + booking.id.slice(-6).toUpperCase()
+        });
+
+        await order.save();
+        booking.marketplaceOrderId = order._id;
+        await booking.save();
+
+        // 1. Generate Materials Invoice
+        const matInv = new Invoice({
+          invoiceId: 'INV_MAT_' + Date.now().toString().slice(-8),
+          bookingId: booking.id,
+          invoiceType: 'material',
+          recipientId: req.userId,
+          senderId: shopId,
+          details: {
+            shopName: shop.name,
+            shopAddress: shop.address,
+            shopPhone: shop.phone,
+            products: orderedProducts,
+            subtotal: matSubtotal,
+            deliveryCharge,
+            grandTotal: matSubtotal + deliveryCharge
+          },
+          amount: matSubtotal + deliveryCharge
+        });
+        await matInv.save();
+      }
+    }
+
+    // Always generate Provider Labour Invoice
+    const labourCharge = priceBreakdown ? priceBreakdown.subtotal : (parseInt(String(price).replace(/\D/g, '')) || 500);
+    const provInv = new Invoice({
+      invoiceId: 'INV_PROV_' + Date.now().toString().slice(-8),
+      bookingId: booking.id,
+      invoiceType: 'provider',
+      recipientId: req.userId,
+      senderId: providerId,
+      details: {
+        providerName,
+        serviceType,
+        labourCharge,
+        quantity: 1,
+        grandTotal: labourCharge
+      },
+      amount: labourCharge
+    });
+    await provInv.save();
+
+    // Always generate ServiceHub platform fee invoice
+    const bookingFee = priceBreakdown ? priceBreakdown.bookingFee : 50;
+    const platformFee = priceBreakdown ? priceBreakdown.platformFee : 0;
+    const taxes = priceBreakdown ? priceBreakdown.taxes : 0;
+    const shInv = new Invoice({
+      invoiceId: 'INV_SH_' + Date.now().toString().slice(-8),
+      bookingId: booking.id,
+      invoiceType: 'servicehub',
+      recipientId: req.userId,
+      senderId: 'servicehub',
+      details: {
+        bookingFee,
+        platformFee,
+        taxes,
+        grandTotal: bookingFee + platformFee + taxes
+      },
+      amount: bookingFee + platformFee + taxes
+    });
+    await shInv.save();
 
     // Create notification for Provider
     if (mongoose.Types.ObjectId.isValid(providerId)) {
@@ -1009,6 +1157,33 @@ app.get('/api/admin/payments', auth, adminOnly, async (req, res) => {
   }
 });
 
+// Update payments ledger (Admin)
+app.put('/api/admin/payments/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { providerStatus, materialsStatus } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    
+    if (providerStatus) booking.paymentStatus = providerStatus;
+    if (materialsStatus) booking.materialsPaymentStatus = materialsStatus;
+    
+    await booking.save();
+
+    // If there is a marketplace order, also sync the status
+    if (materialsStatus && booking.marketplaceOrderId) {
+      const MarketplaceOrder = (await import('./models/MarketplaceOrder.js')).default;
+      const order = await MarketplaceOrder.findById(booking.marketplaceOrderId);
+      if (order) {
+        order.paymentStatus = materialsStatus;
+        await order.save();
+      }
+    }
+
+    res.json(booking);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // --- CONTACT & NEWSLETTER API ---
 
@@ -1637,6 +1812,514 @@ app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
         providerEarnings,
         platformCommission
       }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// --- SERVICEHUB MATERIALS MARKETPLACE API ---
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Distance calculator helper
+function getDistance(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return 9999;
+  const R = 6371; // radius of Earth in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return +(R * c).toFixed(2);
+}
+
+// City coordinate reference points
+const CITY_COORDS = {
+  'chennai': { lat: 13.0827, lng: 80.2707 },
+  'coimbatore': { lat: 11.0168, lng: 76.9558 },
+  'madurai': { lat: 9.9252, lng: 78.1198 },
+  'tiruchirappalli': { lat: 10.7905, lng: 78.7047 },
+  'salem': { lat: 11.6643, lng: 78.1460 },
+  'vellore': { lat: 12.9165, lng: 79.1325 }
+};
+
+// GET Service matched products sorted & filtered dynamically
+app.get('/api/marketplace/products', auth, async (req, res) => {
+  try {
+    const { categoryKey, serviceItemKey, workTypeKey, location, sortBy = 'nearest', brand, lat, lng, page = 1, limit = 20 } = req.query;
+
+    if (!categoryKey || !serviceItemKey) {
+      return res.status(400).json({ error: 'categoryKey and serviceItemKey are required' });
+    }
+
+    // Find all products matching category and item key
+    const productQuery = {
+      categoryKey: categoryKey.toLowerCase(),
+      serviceItemKey: serviceItemKey.toLowerCase()
+    };
+    if (workTypeKey) {
+      productQuery.$or = [{ workTypeKey: workTypeKey.toLowerCase() }, { workTypeKey: '' }];
+    }
+
+    const matchedProducts = await Product.find(productQuery);
+    if (matchedProducts.length === 0) {
+      return res.json({ products: [], total: 0 });
+    }
+
+    const productIds = matchedProducts.map(p => p._id);
+
+    // Find inventory listings for these products
+    const inventoryListings = await ShopInventory.find({
+      productId: { $in: productIds },
+      isActive: true,
+      stock: { $gt: 0 }
+    }).populate('productId').populate('shopId');
+
+    // Parse GPS coords
+    const userLat = lat ? parseFloat(lat) : null;
+    const userLng = lng ? parseFloat(lng) : null;
+
+    let listings = inventoryListings.map(inv => {
+      const shop = inv.shopId;
+      const product = inv.productId;
+      if (!shop || !product) return null;
+
+      // Determine coordinate base
+      let shopLat = shop.gpsLocation?.latitude;
+      let shopLng = shop.gpsLocation?.longitude;
+      
+      let clientLat = userLat;
+      let clientLng = userLng;
+
+      if (!clientLat && location) {
+        const cityKey = String(location).toLowerCase().trim();
+        const baseCoords = CITY_COORDS[cityKey];
+        if (baseCoords) {
+          clientLat = baseCoords.lat;
+          clientLng = baseCoords.lng;
+        }
+      }
+
+      const distance = getDistance(clientLat, clientLng, shopLat, shopLng);
+
+      const finalPrice = Math.round(inv.price * (1 - (inv.discount || 0) / 100));
+
+      return {
+        id: inv.id,
+        productId: product.id,
+        name: product.name,
+        brandName: product.brandName,
+        image: product.image,
+        description: product.description,
+        specifications: product.specifications,
+        warranty: product.warranty,
+        categoryKey: product.categoryKey,
+        serviceItemKey: product.serviceItemKey,
+        price: inv.price,
+        discount: inv.discount,
+        finalPrice,
+        stock: inv.stock,
+        estimatedDeliveryHours: inv.estimatedDeliveryHours,
+        deliveryCharge: inv.deliveryCharge,
+        shop: {
+          id: shop.id,
+          name: shop.name,
+          ownerName: shop.ownerName,
+          phone: shop.phone,
+          address: shop.address,
+          location: shop.location,
+          rating: shop.rating,
+          gpsLocation: shop.gpsLocation,
+          deliveryAvailable: shop.deliveryAvailable,
+          pickupAvailable: shop.pickupAvailable
+        },
+        distance
+      };
+    }).filter(Boolean);
+
+    // Apply location/district filter
+    if (location) {
+      const normalizedLoc = String(location).toLowerCase().trim();
+      listings = listings.filter(l => l.shop.location.toLowerCase() === normalizedLoc);
+    }
+
+    // Apply Brand filter if provided (comma-separated names)
+    if (brand) {
+      const brandList = String(brand).split(',').map(b => b.trim().toLowerCase());
+      listings = listings.filter(l => brandList.includes(l.brandName.toLowerCase()));
+    }
+
+    // Apply sorting
+    if (sortBy === 'lowest_price') {
+      listings.sort((a, b) => a.finalPrice - b.finalPrice);
+    } else if (sortBy === 'highest_rating') {
+      listings.sort((a, b) => b.shop.rating - a.shop.rating);
+    } else if (sortBy === 'fastest_delivery') {
+      listings.sort((a, b) => a.estimatedDeliveryHours - b.estimatedDeliveryHours);
+    } else {
+      // Default: nearest
+      listings.sort((a, b) => a.distance - b.distance);
+    }
+
+    // Pagination
+    const pg = parseInt(page) || 1;
+    const lim = parseInt(limit) || 20;
+    const total = listings.length;
+    const paginated = listings.slice((pg - 1) * lim, pg * lim);
+
+    res.json({
+      products: paginated,
+      total,
+      page: pg,
+      limit: lim
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET verified partner shops
+app.get('/api/marketplace/shops/nearby', auth, async (req, res) => {
+  try {
+    const { location } = req.query;
+    const query = { status: 'Verified' };
+    if (location) {
+      query.location = location;
+    }
+    const shops = await PartnerShop.find(query).sort({ rating: -1 });
+    res.json(shops);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST Calculate checkout prices & inventory availability
+app.post('/api/marketplace/calculate-checkout', auth, async (req, res) => {
+  try {
+    const { shopId, products } = req.body;
+    // products: [{ productId, quantity }]
+    if (!shopId || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'shopId and products[] are required' });
+    }
+
+    const shop = await PartnerShop.findById(shopId);
+    if (!shop) return res.status(404).json({ error: 'Partner shop not found' });
+
+    let subtotal = 0;
+    let deliveryCharge = 0;
+    const checkedProducts = [];
+
+    for (const p of products) {
+      const { productId, quantity = 1 } = p;
+      if (!productId) continue;
+
+      const inventory = await ShopInventory.findOne({ shopId, productId, isActive: true }).populate('productId');
+      if (!inventory) {
+        return res.status(400).json({ error: `Product not found or unavailable in this shop` });
+      }
+
+      const qty = Math.max(1, parseInt(quantity) || 1);
+      if (inventory.stock < qty) {
+        return res.status(400).json({ error: `Insufficient stock for ${inventory.productId.name}. Available: ${inventory.stock}` });
+      }
+
+      const unitPrice = inventory.price;
+      const discount = inventory.discount || 0;
+      const finalUnitPrice = Math.round(unitPrice * (1 - discount / 100));
+      const itemSubtotal = finalUnitPrice * qty;
+
+      subtotal += itemSubtotal;
+      deliveryCharge = Math.max(deliveryCharge, inventory.deliveryCharge || 0);
+
+      checkedProducts.push({
+        productId,
+        productName: inventory.productId.name,
+        brandName: inventory.productId.brandName,
+        quantity: qty,
+        price: unitPrice,
+        discount,
+        finalUnitPrice,
+        subtotal: itemSubtotal
+      });
+    }
+
+    const bookingFee = 50;
+    const platformFee = 0;
+    const taxes = 0;
+    const materialsTotal = subtotal + deliveryCharge;
+    const grandTotal = materialsTotal;
+
+    res.json({
+      shopId,
+      shopName: shop.name,
+      products: checkedProducts,
+      subtotal,
+      deliveryCharge,
+      materialsTotal,
+      priceBreakdown: {
+        subtotal,
+        deliveryCharge,
+        materialsTotal,
+        bookingFee,
+        platformFee,
+        taxes,
+        grandTotal
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET separate invoices for a booking
+app.get('/api/marketplace/invoices/booking/:bookingId', auth, async (req, res) => {
+  try {
+    const invoices = await Invoice.find({ bookingId: req.params.bookingId });
+    res.json(invoices);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ─── ADMIN MARKETPLACE API ──────────────────────────────────────────────────
+
+// Shops CRUD
+app.get('/api/admin/marketplace/shops', auth, adminOnly, async (req, res) => {
+  try {
+    const shops = await PartnerShop.find().sort({ createdAt: -1 });
+    res.json(shops);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/marketplace/shops', auth, adminOnly, async (req, res) => {
+  try {
+    const shop = new PartnerShop(req.body);
+    await shop.save();
+    res.status(201).json(shop);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/marketplace/shops/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const shop = await PartnerShop.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!shop) return res.status(404).json({ error: 'Shop not found' });
+    res.json(shop);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/marketplace/shops/:id', auth, adminOnly, async (req, res) => {
+  try {
+    await ShopInventory.deleteMany({ shopId: req.params.id });
+    await MarketplaceOrder.deleteMany({ shopId: req.params.id });
+    await PartnerShop.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Products CRUD
+app.get('/api/admin/marketplace/products', auth, adminOnly, async (req, res) => {
+  try {
+    const products = await Product.find().sort({ name: 1 });
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/marketplace/products', auth, adminOnly, async (req, res) => {
+  try {
+    const { name, brandId, image, description, specifications, warranty, categoryKey, serviceItemKey, workTypeKey } = req.body;
+    if (!name || !brandId || !categoryKey || !serviceItemKey) {
+      return res.status(400).json({ error: 'name, brandId, categoryKey, and serviceItemKey are required' });
+    }
+    const brand = await Brand.findById(brandId);
+    if (!brand) return res.status(404).json({ error: 'Brand not found' });
+
+    const prod = new Product({
+      name,
+      brandId,
+      brandName: brand.name,
+      image: image || '📦',
+      description: description || '',
+      specifications: specifications || {},
+      warranty: warranty || 'No warranty',
+      categoryKey: categoryKey.toLowerCase(),
+      serviceItemKey: serviceItemKey.toLowerCase(),
+      workTypeKey: workTypeKey ? workTypeKey.toLowerCase() : '',
+      isActive: true
+    });
+    await prod.save();
+    res.status(201).json(prod);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/marketplace/products/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const updates = req.body;
+    if (updates.brandId) {
+      const brand = await Brand.findById(updates.brandId);
+      if (brand) updates.brandName = brand.name;
+    }
+    const prod = await Product.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!prod) return res.status(404).json({ error: 'Product not found' });
+    res.json(prod);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/marketplace/products/:id', auth, adminOnly, async (req, res) => {
+  try {
+    await ShopInventory.deleteMany({ productId: req.params.id });
+    await Product.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Brands CRUD
+app.get('/api/admin/marketplace/brands', auth, adminOnly, async (req, res) => {
+  try {
+    const brands = await Brand.find().sort({ name: 1 });
+    res.json(brands);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/marketplace/brands', auth, adminOnly, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: 'Brand name is required' });
+    const brand = new Brand({ name, key: name.toLowerCase().trim().replace(/\s+/g, '_') });
+    await brand.save();
+    res.status(201).json(brand);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Brand already exists' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Inventory CRUD
+app.get('/api/admin/marketplace/inventory', auth, adminOnly, async (req, res) => {
+  try {
+    const { shopId } = req.query;
+    const filter = shopId ? { shopId } : {};
+    const listings = await ShopInventory.find(filter).populate('productId').populate('shopId').sort({ createdAt: -1 });
+    res.json(listings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/marketplace/inventory', auth, adminOnly, async (req, res) => {
+  try {
+    const { shopId, productId, price, discount, stock, estimatedDeliveryHours, deliveryCharge } = req.body;
+    if (!shopId || !productId || price === undefined) {
+      return res.status(400).json({ error: 'shopId, productId, and price are required' });
+    }
+    const listing = new ShopInventory({
+      shopId, productId, price,
+      discount: discount || 0,
+      stock: stock !== undefined ? stock : 10,
+      estimatedDeliveryHours: estimatedDeliveryHours || 24,
+      deliveryCharge: deliveryCharge || 0,
+      isActive: true
+    });
+    await listing.save();
+    res.status(201).json(listing);
+  } catch (err) {
+    if (err.code === 11000) return res.status(400).json({ error: 'Product inventory listing already exists for this shop' });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/marketplace/inventory/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const listing = await ShopInventory.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!listing) return res.status(404).json({ error: 'Listing not found' });
+    res.json(listing);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/marketplace/inventory/:id', auth, adminOnly, async (req, res) => {
+  try {
+    await ShopInventory.findByIdAndDelete(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Orders & Payments Management (Admin)
+app.get('/api/admin/marketplace/orders', auth, adminOnly, async (req, res) => {
+  try {
+    const orders = await MarketplaceOrder.find().sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/marketplace/orders/:id', auth, adminOnly, async (req, res) => {
+  try {
+    const { orderStatus, paymentStatus } = req.body;
+    const updates = {};
+    if (orderStatus) updates.orderStatus = orderStatus;
+    if (paymentStatus) updates.paymentStatus = paymentStatus;
+
+    const order = await MarketplaceOrder.findByIdAndUpdate(req.params.id, updates, { new: true });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    res.json(order);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Analytics (Admin)
+app.get('/api/admin/marketplace/analytics', auth, adminOnly, async (req, res) => {
+  try {
+    const totalShops = await PartnerShop.countDocuments();
+    const totalProducts = await Product.countDocuments();
+    const totalOrders = await MarketplaceOrder.countDocuments();
+    const orders = await MarketplaceOrder.find({ paymentStatus: 'Paid' });
+    const totalSales = orders.reduce((sum, o) => sum + o.grandTotal, 0);
+
+    // Sales by shop
+    const shopSales = {};
+    orders.forEach(o => {
+      shopSales[o.shopName] = (shopSales[o.shopName] || 0) + o.grandTotal;
+    });
+
+    const shopSalesArray = Object.keys(shopSales).map(name => ({
+      name,
+      sales: shopSales[name]
+    })).sort((a, b) => b.sales - a.sales);
+
+    res.json({
+      totalShops,
+      totalProducts,
+      totalOrders,
+      totalSales,
+      shopSales: shopSalesArray
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2289,60 +2972,206 @@ mongoose.connect(MONGODB_URI)
       console.log('🌱 Service Catalog seeded successfully!');
     }
 
-    // Seed default providers if none exist
-    const count = await User.countDocuments({ userType: 'provider' });
-    if (count === 0) {
-      console.log('🌱 Seeding default provider profiles into MongoDB...');
+    // Seed Marketplace if empty
+    const shopsCount = await PartnerShop.countDocuments();
+    if (shopsCount === 0) {
+      console.log('🌱 Seeding ServiceHub Materials Marketplace...');
+      // 1. Seed Brands
+      const brandsData = [
+        { name: 'Anchor', key: 'anchor' },
+        { name: 'GM', key: 'gm' },
+        { name: 'Legrand', key: 'legrand' },
+        { name: 'Havells', key: 'havells' },
+        { name: 'Crompton', key: 'crompton' },
+        { name: 'Orient', key: 'orient' },
+        { name: 'Bajaj', key: 'bajaj' },
+        { name: 'Usha', key: 'usha' },
+        { name: 'Jaquar', key: 'jaquar' },
+        { name: 'Parryware', key: 'parryware' },
+        { name: 'Hindware', key: 'hindware' },
+        { name: 'Asian Paints', key: 'asian_paints' },
+        { name: 'Berger', key: 'berger' },
+        { name: 'Nerolac', key: 'nerolac' },
+        { name: 'Dulux', key: 'dulux' },
+        { name: 'Supreme Pipes', key: 'supreme' },
+        { name: 'Finolex', key: 'finolex' },
+        { name: 'Tata Steel', key: 'tata' },
+        { name: 'Bosch', key: 'bosch' },
+        { name: 'Samsung', key: 'samsung' },
+        { name: 'Crucial', key: 'crucial' },
+        { name: 'Logitech', key: 'logitech' }
+      ];
+      const brands = await Brand.insertMany(brandsData);
+      const brandMap = {};
+      brands.forEach(b => { brandMap[b.key] = b; });
+
+      // 2. Seed Partner Shops in key districts
+      const districts = ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem', 'Vellore'];
+      const shopSeeds = [];
       
-      const districts = [
-        'Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem',
-        'Erode', 'Tirunelveli', 'Vellore', 'Thoothukudi', 'Dindigul',
-        'Thanjavur', 'Ranipet', 'Sivaganga', 'Karur', 'Namakkal',
-        'Nilgiris', 'Cuddalore', 'Dharmapuri', 'Kancheepuram', 'Krishnagiri'
+      const shopTypes = [
+        { suffix: 'Electricals & Hardware', key: 'electrical', latOffset: 0.02, lngOffset: 0.02 },
+        { suffix: 'Plumbing & Sanitary Stores', key: 'plumbing', latOffset: -0.02, lngOffset: 0.02 },
+        { suffix: 'Paints & Décor World', key: 'painter', latOffset: 0.02, lngOffset: -0.02 },
+        { suffix: 'Climate Solutions & Spares', key: 'hvac', latOffset: -0.02, lngOffset: -0.02 },
+        { suffix: 'Computer Tech Hub', key: 'electronics', latOffset: 0.01, lngOffset: 0.01 },
+        { suffix: 'Eco Garden Center', key: 'landscaping', latOffset: -0.01, lngOffset: -0.01 }
       ];
 
-      const categories = [
-        { key: 'plumbing', name: 'Plumber', services: [{ name: 'Pipe Repair', price: '600' }, { name: 'Installation', price: '800' }, { name: 'Drain Cleaning', price: '500' }] },
-        { key: 'electrical', name: 'Electrician', services: [{ name: 'Wiring Faults', price: '700' }, { name: 'Switch Install', price: '450' }, { name: 'Short Circuit Repair', price: '900' }] },
-        { key: 'cleaning', name: 'Cleaner', services: [{ name: 'Deep Home Cleaning', price: '1500' }, { name: 'Bathroom Clean', price: '600' }, { name: 'Regular Cleaning', price: '1000' }] },
-        { key: 'hvac', name: 'HVAC Tech', services: [{ name: 'AC Service', price: '800' }, { name: 'AC Installation', price: '1500' }, { name: 'Gas Recharge', price: '2000' }] },
-        { key: 'handyman', name: 'Handyman', services: [{ name: 'Furniture assembly', price: '500' }, { name: 'General Repairs', price: '450' }, { name: 'Painting service', price: '1200' }] },
-        { key: 'landscaping', name: 'Landscaper', services: [{ name: 'Lawn Mowing', price: '400' }, { name: 'Weeding & Pruning', price: '500' }, { name: 'Garden Layout', price: '1500' }] }
-      ];
+      // Coordinate reference points for Tamil Nadu cities
+      const cityCoords = {
+        'Chennai': { lat: 13.0827, lng: 80.2707 },
+        'Coimbatore': { lat: 11.0168, lng: 76.9558 },
+        'Madurai': { lat: 9.9252, lng: 78.1198 },
+        'Tiruchirappalli': { lat: 10.7905, lng: 78.7047 },
+        'Salem': { lat: 11.6643, lng: 78.1460 },
+        'Vellore': { lat: 12.9165, lng: 79.1325 }
+      };
 
-      const providersToSeed = [];
-      const defaultPasswordHash = await bcrypt.hash('password123', 10);
-
-      // Create a provider for each category in each district
-      for (const dist of districts) {
-        for (const cat of categories) {
-          const email = `${dist.toLowerCase().replace(/\s/g, '')}.${cat.key}@example.com`;
-          providersToSeed.push({
-            name: `${dist} ${cat.name}`,
-            email,
-            phone: `+91 ${90000 + Math.floor(Math.random() * 9999)} ${10000 + Math.floor(Math.random() * 89999)}`,
-            location: dist,
-            userType: 'provider',
-            password: defaultPasswordHash,
-            services: cat.services,
-            serviceAreas: [dist],
-            upiId: `${dist.toLowerCase().replace(/\s/g, '')}.${cat.key}@upi`,
-            approved: true,
-            availability: {
-              Monday: { start: '09:00', end: '18:00', enabled: true },
-              Tuesday: { start: '09:00', end: '18:00', enabled: true },
-              Wednesday: { start: '09:00', end: '18:00', enabled: true },
-              Thursday: { start: '09:00', end: '18:00', enabled: true },
-              Friday: { start: '09:00', end: '18:00', enabled: true },
-              Saturday: { start: '09:00', end: '18:00', enabled: true },
-              Sunday: { start: '09:00', end: '18:00', enabled: false }
-            }
+      for (const city of districts) {
+        const base = cityCoords[city];
+        for (const type of shopTypes) {
+          shopSeeds.push({
+            name: `${city} ${type.suffix}`,
+            ownerName: `Owner of ${city} ${type.suffix}`,
+            phone: `+91 ${98400 + Math.floor(Math.random() * 999)} ${10000 + Math.floor(Math.random() * 89999)}`,
+            email: `contact.${city.toLowerCase()}.${type.key}@example.com`,
+            address: `No. ${10 + Math.floor(Math.random() * 100)}, Bazaar Street, ${city}, Tamil Nadu`,
+            location: city,
+            gpsLocation: {
+              latitude: base.lat + type.latOffset + (Math.random() - 0.5) * 0.01,
+              longitude: base.lng + type.lngOffset + (Math.random() - 0.5) * 0.01
+            },
+            gst: `33AAAAA${1000 + Math.floor(Math.random() * 8999)}A1Z${Math.floor(Math.random() * 9)}`,
+            businessHours: '09:00 AM - 08:30 PM',
+            deliveryAvailable: true,
+            pickupAvailable: true,
+            rating: +(4.0 + Math.random() * 1.0).toFixed(1),
+            status: 'Verified'
           });
         }
       }
+      const seededShops = await PartnerShop.insertMany(shopSeeds);
 
-      await User.insertMany(providersToSeed);
-      console.log(`🌱 Seeded ${providersToSeed.length} default provider profiles!`);
+      // 3. Seed Products
+      const productsData = [
+        // Fan replacement/installation (electrical -> fan)
+        { name: 'Havells Florence Ceiling Fan 1200mm', brandKey: 'havells', categoryKey: 'electrical', serviceItemKey: 'fan', warranty: '2 years', image: '🍃', desc: 'Premium ceiling fan with gold decoration lines and energy efficient motor.' },
+        { name: 'Crompton Hill Briz Ceiling Fan 1200mm', brandKey: 'crompton', categoryKey: 'electrical', serviceItemKey: 'fan', warranty: '2 years', image: '🍃', desc: 'High-speed utility ceiling fan with high air delivery.' },
+        { name: 'Orient Electric Apex Ceiling Fan 1200mm', brandKey: 'orient', categoryKey: 'electrical', serviceItemKey: 'fan', warranty: '2 years', image: '🍃', desc: 'Super high air delivery and silent operation.' },
+        { name: 'Bajaj Frore Ceiling Fan 1200mm', brandKey: 'bajaj', categoryKey: 'electrical', serviceItemKey: 'fan', warranty: '2 years', image: '🍃', desc: 'Double ball bearing ceiling fan with rust-free aluminum blades.' },
+        { name: 'Usha Swift Ceiling Fan 1200mm', brandKey: 'usha', categoryKey: 'electrical', serviceItemKey: 'fan', warranty: '2 years', image: '🍃', desc: 'High speed and low power consumption ceiling fan.' },
+        // Switches (electrical -> switch)
+        { name: 'Anchor Roma 6 Amp 1 Way Switch', brandKey: 'anchor', categoryKey: 'electrical', serviceItemKey: 'switch', warranty: '10 years', image: '🔌', desc: 'Modular Switch Roma series.' },
+        { name: 'GM Modular G-Power 1 Way Switch', brandKey: 'gm', categoryKey: 'electrical', serviceItemKey: 'switch', warranty: '10 years', image: '🔌', desc: 'Smooth modular switch with indicator.' },
+        { name: 'Legrand Mylinc 6A Switch', brandKey: 'legrand', categoryKey: 'electrical', serviceItemKey: 'switch', warranty: '10 years', image: '🔌', desc: 'Luxury modular switch plates.' },
+        // Sockets (electrical -> socket)
+        { name: 'Anchor Roma 2-in-1 Modular Socket 6A/16A', brandKey: 'anchor', categoryKey: 'electrical', serviceItemKey: 'socket', warranty: '5 years', image: '🔌', desc: 'Heavy load power socket.' },
+        // Lights (electrical -> light)
+        { name: 'Havells 9W LED Bulb White', brandKey: 'havells', categoryKey: 'electrical', serviceItemKey: 'light', warranty: '1 year', image: '💡', desc: 'High lumen LED bulb.' },
+        // Taps (plumbing -> tap)
+        { name: 'Jaquar Continental Basin Tap', brandKey: 'jaquar', categoryKey: 'plumbing', serviceItemKey: 'tap', warranty: '10 years', image: '🚰', desc: 'Chrome plated luxury brass tap.' },
+        { name: 'Parryware Slimline Basin Tap', brandKey: 'parryware', categoryKey: 'plumbing', serviceItemKey: 'tap', warranty: '7 years', image: '🚰', desc: 'Durable brass faucet.' },
+        { name: 'Hindware Faucet Chrome Plated', brandKey: 'hindware', categoryKey: 'plumbing', serviceItemKey: 'tap', warranty: '5 years', image: '🚰', desc: 'Anti-corrosive brass bathroom tap.' },
+        // Pipes (plumbing -> pipe)
+        { name: 'Supreme PVC Pipe 1 inch (3 meters)', brandKey: 'supreme', categoryKey: 'plumbing', serviceItemKey: 'pipe', warranty: '5 years', image: '🪠', desc: 'High durability PVC pipe.' },
+        { name: 'Finolex CPVC Pipe 0.75 inch (3 meters)', brandKey: 'finolex', categoryKey: 'plumbing', serviceItemKey: 'pipe', warranty: '5 years', image: '🪠', desc: 'Hot and cold water CPVC pipe.' },
+        // Painting Emulsion (painting -> interior_wall)
+        { name: 'Asian Paints Apcolite Premium Emulsion 4L', brandKey: 'asian_paints', categoryKey: 'painter', serviceItemKey: 'interior_wall', warranty: '3 years', image: '🎨', desc: 'Premium interior wall paint.' },
+        { name: 'Berger Easy Clean Luxury Emulsion 4L', brandKey: 'berger', categoryKey: 'painter', serviceItemKey: 'interior_wall', warranty: '3 years', image: '🎨', desc: 'Washable wall paint.' },
+        // Landscaping plants & tools (landscaping -> plants / garden)
+        { name: 'Areca Palm Indoor Plant', brandKey: 'bosch', categoryKey: 'landscaping', serviceItemKey: 'plants', warranty: 'Live guarantee', image: '🪴', desc: 'Natural air purifier plant.' },
+        { name: 'Premium Garden Soil Mix 5kg', brandKey: 'bosch', categoryKey: 'landscaping', serviceItemKey: 'plants', warranty: 'N/A', image: '🪴', desc: 'Organic coco peat and vermicompost soil.' },
+        { name: 'Organic NPK Fertilizer 1kg', brandKey: 'bosch', categoryKey: 'landscaping', serviceItemKey: 'plants', warranty: 'N/A', image: '🪴', desc: 'Organic NPK compound.' },
+        // AC spares (hvac -> indoor_unit / compressor)
+        { name: 'AC Copper Pipe Kit (3 meters)', brandKey: 'finolex', categoryKey: 'hvac', serviceItemKey: 'indoor_unit', warranty: '1 year', image: '❄️', desc: 'Seamless copper tubing for AC.' },
+        { name: 'AC Drain Pipe Flexible (5 meters)', brandKey: 'finolex', categoryKey: 'hvac', serviceItemKey: 'indoor_unit', warranty: '1 year', image: '❄️', desc: 'Flexible drain pipe.' },
+        { name: 'Heavy Duty AC Outdoor Stand', brandKey: 'tata', categoryKey: 'hvac', serviceItemKey: 'indoor_unit', warranty: '5 years', image: '❄️', desc: 'Sturdy wall bracket stand.' }
+      ];
+
+      const seededProducts = [];
+      for (const p of productsData) {
+        const brand = brandMap[p.brandKey];
+        const newProduct = new Product({
+          name: p.name,
+          brandId: brand ? brand._id : new mongoose.Types.ObjectId(),
+          brandName: brand ? brand.name : 'Generic',
+          image: p.image,
+          description: p.desc,
+          warranty: p.warranty,
+          categoryKey: p.categoryKey,
+          serviceItemKey: p.serviceItemKey,
+          isActive: true
+        });
+        await newProduct.save();
+        seededProducts.push(newProduct);
+      }
+
+      // 4. Seed ShopInventory mapping
+      const inventorySeeds = [];
+      for (const shop of seededShops) {
+        // Map products of shop type
+        // e.g. electrical shops get electrical products
+        const matchingProducts = seededProducts.filter(p => {
+          if (shop.name.includes('Electricals') && p.categoryKey === 'electrical') return true;
+          if (shop.name.includes('Plumbing') && p.categoryKey === 'plumbing') return true;
+          if (shop.name.includes('Paints') && p.categoryKey === 'painter') return true;
+          if (shop.name.includes('Climate') && p.categoryKey === 'hvac') return true;
+          if (shop.name.includes('Garden') && p.categoryKey === 'landscaping') return true;
+          return false;
+        });
+
+        for (const prod of matchingProducts) {
+          // Add variations in price per city/shop
+          const priceMultiplier = 0.95 + Math.random() * 0.1;
+          const basePriceMap = {
+            'Florence Ceiling Fan': 2200,
+            'Hill Briz Ceiling Fan': 1600,
+            'Apex Ceiling Fan': 1750,
+            'Frore Ceiling Fan': 1550,
+            'Swift Ceiling Fan': 1800,
+            'Roma 1 Way Switch': 35,
+            'G-Power 1 Way Switch': 40,
+            'Mylinc 6A Switch': 55,
+            'Roma 2-in-1 Modular Socket': 110,
+            '9W LED Bulb White': 120,
+            'Continental Basin Tap': 1400,
+            'Slimline Basin Tap': 950,
+            'Faucet Chrome Plated': 1100,
+            'PVC Pipe 1 inch': 250,
+            'CPVC Pipe 0.75 inch': 350,
+            'Apcolite Premium Emulsion': 1250,
+            'Easy Clean Luxury Emulsion': 1450,
+            'Areca Palm Indoor Plant': 299,
+            'Garden Soil Mix': 180,
+            'NPK Fertilizer': 150,
+            'AC Copper Pipe Kit': 1800,
+            'AC Drain Pipe Flexible': 250,
+            'Outdoor Stand': 750
+          };
+
+          let basePrice = 500;
+          for (const key of Object.keys(basePriceMap)) {
+            if (prod.name.includes(key)) {
+              basePrice = basePriceMap[key];
+              break;
+            }
+          }
+
+          inventorySeeds.push({
+            shopId: shop._id,
+            productId: prod._id,
+            price: Math.round(basePrice * priceMultiplier),
+            discount: Math.floor(Math.random() * 15), // 0 to 15% discount
+            stock: 5 + Math.floor(Math.random() * 25),
+            estimatedDeliveryHours: 12 + Math.floor(Math.random() * 24),
+            deliveryCharge: Math.random() > 0.5 ? 50 : 0,
+            isActive: true
+          });
+        }
+      }
+      await ShopInventory.insertMany(inventorySeeds);
+      console.log(`🌱 Materials Marketplace seeded: ${seededShops.length} shops, ${seededProducts.length} products, ${inventorySeeds.length} stock listings.`);
     }
 
     app.listen(PORT, () => {
@@ -2352,3 +3181,5 @@ mongoose.connect(MONGODB_URI)
   .catch(err => {
     console.error('❌ MongoDB Connection Error:', err);
   });
+
+// Trigger comment for nodemon restart and Atlas marketplace database seeding.

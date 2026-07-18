@@ -19,6 +19,160 @@ const statusColors: Record<string, string> = {
   Cancelled: 'bg-destructive/10 text-destructive',
 };
 
+const downloadInvoiceFile = (invoiceType: 'provider' | 'material' | 'servicehub', booking: any) => {
+  const isMaterial = invoiceType === 'material';
+  const isProvider = invoiceType === 'provider';
+  const isSH = invoiceType === 'servicehub';
+
+  let title = '';
+  let fromInfo = '';
+  let itemsHtml = '';
+  let summaryHtml = '';
+
+  if (isProvider) {
+    title = 'Provider Service Labour Invoice';
+    fromInfo = `
+      <strong>Provider Name:</strong> ${booking.providerName}<br/>
+      <strong>Service Category:</strong> ${booking.category}<br/>
+      <strong>Service Type:</strong> ${booking.serviceType}<br/>
+    `;
+    const labourVal = booking.priceBreakdown?.subtotal || 500;
+    itemsHtml = `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">Service Labour charges (Completed by ${booking.providerName})</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">1</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">₹${labourVal}</td>
+      </tr>
+    `;
+    summaryHtml = `
+      <div style="text-align: right; margin-top: 20px;">
+        <p><strong>Labour Subtotal:</strong> ₹${labourVal}</p>
+        <p style="font-size: 16px; color: #4f46e5;"><strong>Total Payable to Provider:</strong> ₹${labourVal}</p>
+      </div>
+    `;
+  } else if (isMaterial) {
+    title = 'Materials Marketplace Invoice';
+    const shopName = booking.marketplaceOrder?.shopName || 'Partner Shop';
+    const shopAddress = booking.marketplaceOrder?.shopId?.address || 'Verified Partner Shop Location';
+    fromInfo = `
+      <strong>Seller:</strong> ${shopName}<br/>
+      <strong>Address:</strong> ${shopAddress}<br/>
+      <strong>Method:</strong> Hand-arranged via ServiceHub Marketplace (${booking.deliveryMethod})<br/>
+    `;
+    
+    const items = booking.materialsList || booking.marketplaceOrder?.products || [];
+    itemsHtml = items.map((item: any) => `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">${item.brandName} - ${item.productName}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">${item.quantity}</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">₹${item.finalUnitPrice || item.price}</td>
+      </tr>
+    `).join('');
+
+    const sub = booking.materialsTotal || booking.marketplaceOrder?.grandTotal || 0;
+    const delivery = booking.deliveryMethod === 'Delivery' ? (booking.marketplaceOrder?.deliveryCharge || 0) : 0;
+    summaryHtml = `
+      <div style="text-align: right; margin-top: 20px;">
+        <p><strong>Materials Subtotal:</strong> ₹${sub - delivery}</p>
+        ${delivery > 0 ? `<p><strong>Delivery Charge:</strong> ₹${delivery}</p>` : ''}
+        <p style="font-size: 16px; color: #4f46e5;"><strong>Grand Total:</strong> ₹${sub}</p>
+      </div>
+    `;
+  } else if (isSH) {
+    title = 'ServiceHub Platform Charges Invoice';
+    fromInfo = `
+      <strong>Platform Provider:</strong> ServiceHub Connect Private Ltd.<br/>
+      <strong>Service Location:</strong> ${booking.location}<br/>
+      <strong>Booking Tracking ID:</strong> ${booking.trackingId}<br/>
+    `;
+    itemsHtml = `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">Platform Booking Fee</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">1</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">₹50</td>
+      </tr>
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">Platform Service Commission</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">1</td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">₹0</td>
+      </tr>
+    `;
+    summaryHtml = `
+      <div style="text-align: right; margin-top: 20px;">
+        <p><strong>Subtotal:</strong> ₹50</p>
+        <p><strong>Taxes & GST (0%):</strong> ₹0</p>
+        <p style="font-size: 16px; color: #4f46e5;"><strong>Total ServiceHub Charges:</strong> ₹50</p>
+      </div>
+    `;
+  }
+
+  const invoiceHtml = `
+    <html>
+    <head>
+      <title>Invoice - ${booking.trackingId}</title>
+      <style>
+        body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; }
+        .invoice-box { max-width: 800px; margin: auto; padding: 30px; border: 1px solid #eee; box-shadow: 0 0 10px rgba(0, 0, 0, .15); border-radius: 10px; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #6366f1; padding-bottom: 20px; }
+        .logo { font-size: 24px; font-weight: bold; color: #6366f1; }
+        .details-table { width: 100%; margin-top: 20px; text-align: left; border-collapse: collapse; }
+      </style>
+    </head>
+    <body>
+      <div class="invoice-box">
+        <div class="header">
+          <div class="logo">ServiceHub</div>
+          <div>
+            <h2 style="margin: 0; color: #111827;">${title}</h2>
+            <p style="margin: 5px 0 0 0; font-size: 12px; text-align: right; color: #6b7280;">Date: ${booking.date}</p>
+          </div>
+        </div>
+        <div style="margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; font-size: 13px; line-height: 1.6;">
+          <div>
+            <h4 style="margin: 0 0 10px 0; color: #4f46e5; text-transform: uppercase; font-size: 11px;">Billing Details</h4>
+            ${fromInfo}
+          </div>
+          <div>
+            <h4 style="margin: 0 0 10px 0; color: #4f46e5; text-transform: uppercase; font-size: 11px;">Customer Info</h4>
+            <strong>Name:</strong> ${booking.customerName || 'ServiceHub User'}<br/>
+            <strong>Email:</strong> ${booking.customerEmail || ''}<br/>
+            <strong>Location:</strong> ${booking.location}<br/>
+          </div>
+        </div>
+        <table class="details-table" style="font-size: 13px;">
+          <thead>
+            <tr style="background: #f9fafb; color: #4b5563;">
+              <th style="padding: 12px;">Description</th>
+              <th style="padding: 12px; text-align: right; width: 80px;">Qty</th>
+              <th style="padding: 12px; text-align: right; width: 100px;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+        ${summaryHtml}
+        <div style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center;">
+          Thank you for choosing ServiceHub. This is a computer generated invoice and does not require signature.
+        </div>
+      </div>
+      <script>
+        window.onload = function() { window.print(); }
+      </script>
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob([invoiceHtml], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `Invoice_${invoiceType.toUpperCase()}_${booking.trackingId}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
   const { bookings, cancelBooking, refreshBookings } = useAuth();
   const [trackingBooking, setTrackingBooking] = useState<Booking | null>(null);
@@ -179,6 +333,57 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
                   <div><span className="text-muted-foreground">Date:</span> <span className="text-foreground font-medium">{b.date}</span></div>
                   <div><span className="text-muted-foreground">Time:</span> <span className="text-foreground font-medium">{b.time}</span></div>
                   <div><span className="text-muted-foreground">Price:</span> <span className="text-foreground font-medium">{b.price}</span></div>
+                </div>
+
+                {/* Marketplace materials details if requested */}
+                {b.materialsRequired && (
+                  <div className="mt-3 p-3 bg-muted/30 border border-border rounded-xl space-y-2 text-xs">
+                    <span className="font-bold text-foreground inline-flex items-center gap-1.5">
+                      📦 Marketplace Materials ({b.materialsList?.length || 0} item{b.materialsList?.length > 1 ? 's' : ''})
+                    </span>
+                    <div className="divide-y divide-border/40">
+                      {b.materialsList?.map((item: any, idx: number) => (
+                        <div key={idx} className="flex justify-between py-1 text-[11px]">
+                          <span className="text-muted-foreground">{item.brandName} · {item.productName} (x{item.quantity})</span>
+                          <span className="font-medium text-foreground">₹{item.subtotal}</span>
+                        </div>
+                      ))}
+                      <div className="flex justify-between py-1 font-semibold text-[11px] border-t border-dashed border-border mt-1">
+                        <span className="text-muted-foreground">Fulfillment Method ({b.deliveryMethod})</span>
+                        <span className="text-primary">Total: ₹{b.materialsTotal}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Separated Invoice Download */}
+                <div className="mt-3 p-3 border border-border bg-card rounded-xl space-y-2">
+                  <span className="text-xs font-bold text-muted-foreground block uppercase tracking-wider text-[10px]">Download Split Invoices</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadInvoiceFile('provider', b)}
+                      className="px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg bg-card hover:bg-muted text-foreground transition-all"
+                    >
+                      📄 Labour Bill
+                    </button>
+                    {b.materialsRequired && b.materialsTotal > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => downloadInvoiceFile('material', b)}
+                        className="px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg bg-card hover:bg-muted text-foreground transition-all"
+                      >
+                        📦 Materials Bill
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => downloadInvoiceFile('servicehub', b)}
+                      className="px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg bg-card hover:bg-muted text-foreground transition-all"
+                    >
+                      🏦 ServiceHub Fee
+                    </button>
+                  </div>
                 </div>
                 {b.status === 'Completed' && (
                   <div className="mt-3 p-4 bg-success/5 border border-success/15 rounded-xl space-y-3">

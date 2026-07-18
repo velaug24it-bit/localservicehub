@@ -10,8 +10,10 @@ interface ProviderPricingEntry { workTypeId: string; price: number; isActive: bo
 export interface SelectedServiceItem {
   serviceItemId: string;
   serviceItemName: string;
+  serviceItemKey: string;
   workTypeId: string;
   workTypeName: string;
+  workTypeKey: string;
   quantity: number;
   unitPrice: number;
   subtotal: number;
@@ -151,8 +153,10 @@ export default function DynamicServiceSelector({
     const newItem: SelectedServiceItem = {
       serviceItemId: selectedItem.id,
       serviceItemName: selectedItem.name,
+      serviceItemKey: selectedItem.key,
       workTypeId: selectedWorkType.id,
       workTypeName: selectedWorkType.name,
+      workTypeKey: selectedWorkType.key,
       quantity: qty,
       unitPrice: price,
       subtotal: price * qty,
