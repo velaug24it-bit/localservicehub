@@ -7,6 +7,7 @@ import ProviderProfileTab from '@/components/provider/ProviderProfileTab';
 import ProviderCalendar from '@/components/provider/ProviderCalendar';
 import ProviderPricingTab from '@/components/provider/ProviderPricingTab';
 import NotificationBell from '@/components/NotificationBell';
+import Footer from '@/components/Footer';
 import { trackingSteps } from '@/data/providers';
 import { Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Package } from 'lucide-react';
 
@@ -924,6 +925,7 @@ const ProviderDashboard = () => {
           </div>
         )}
       </div>
+      <Footer />
     </div>
   );
 };

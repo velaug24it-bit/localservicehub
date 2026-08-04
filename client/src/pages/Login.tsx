@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { districts } from '@/data/providers';
 import { toast } from '@/hooks/use-toast';
+import { 
+  Eye, EyeOff, Lock, Mail, User, Phone, MapPin, 
+  ShieldCheck, ArrowRight, Wrench, CheckCircle2, Sparkles, Building2
+} from 'lucide-react';
 
 const getErrorMessage = (err: unknown, fallback: string) =>
   err instanceof Error ? err.message : fallback;
@@ -31,6 +35,9 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [userType, setUserType] = useState<'customer' | 'provider'>('customer');
   const [showForgot, setShowForgot] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const { login, loginWithGoogle, signup } = useAuth();
   const navigate = useNavigate();
   const googleButtonRef = useRef<HTMLDivElement>(null);
@@ -51,9 +58,9 @@ const Login = () => {
   const [forgotEmail, setForgotEmail] = useState('');
 
   const passwordStrength = (pw: string) => {
-    if (pw.length < 6) return { label: 'Weak', color: 'bg-destructive', width: '33%' };
-    if (pw.length < 10 || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw)) return { label: 'Medium', color: 'bg-warning', width: '66%' };
-    return { label: 'Strong', color: 'bg-success', width: '100%' };
+    if (pw.length < 6) return { label: 'Weak', color: 'bg-rose-500', width: '33%' };
+    if (pw.length < 10 || !/[A-Z]/.test(pw) || !/[0-9]/.test(pw)) return { label: 'Medium', color: 'bg-amber-500', width: '66%' };
+    return { label: 'Strong', color: 'bg-emerald-500', width: '100%' };
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -62,10 +69,10 @@ const Login = () => {
     setLoading(true);
     try {
       await login(loginEmail, loginPassword);
-      toast({ title: 'Welcome back!', description: 'Login successful.' });
+      toast({ title: 'Welcome back!', description: 'Sign in successful.' });
       navigate('/');
     } catch (err: unknown) {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Invalid email or password.'), variant: 'destructive' });
+      toast({ title: 'Authentication Error', description: getErrorMessage(err, 'Invalid email or password.'), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -73,17 +80,17 @@ const Login = () => {
 
   const handleGoogleCredential = async (credential?: string) => {
     if (!credential) {
-      toast({ title: 'Error', description: 'Google did not return a sign-in credential.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Google sign in credential missing.', variant: 'destructive' });
       return;
     }
 
     setLoading(true);
     try {
       await loginWithGoogle(credential);
-      toast({ title: 'Welcome!', description: 'Google login successful.' });
+      toast({ title: 'Welcome!', description: 'Signed in with Google.' });
       navigate('/');
     } catch (err: unknown) {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Google login failed.'), variant: 'destructive' });
+      toast({ title: 'Error', description: getErrorMessage(err, 'Google sign in failed.'), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -131,7 +138,7 @@ const Login = () => {
       return;
     }
     if (signupPhone && signupPhone.replace(/\D/g, '').length !== 10) {
-      toast({ title: 'Error', description: 'Phone must be 10 digits.', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Phone number must be 10 digits.', variant: 'destructive' });
       return;
     }
     setLoading(true);
@@ -145,198 +152,434 @@ const Login = () => {
         password: signupPassword,
       });
       if (userType === 'provider') {
-        toast({ title: 'Account Pending Approval', description: 'Your provider profile was created successfully and is pending admin review. You can log in once approved.' });
+        toast({ title: 'Account Created', description: 'Your provider profile was created and is pending admin verification.' });
       } else {
-        toast({ title: 'Welcome to ServiceHub!', description: 'Account created successfully.' });
+        toast({ title: 'Welcome!', description: 'Account created successfully.' });
         navigate('/');
       }
     } catch (err: unknown) {
-      toast({ title: 'Error', description: getErrorMessage(err, 'Signup failed.'), variant: 'destructive' });
+      toast({ title: 'Registration Failed', description: getErrorMessage(err, 'Signup failed.'), variant: 'destructive' });
     } finally {
       setLoading(false);
     }
-  };  const handleForgotPassword = async () => {
+  };
+
+  const handleForgotPassword = async () => {
     if (!forgotEmail) return;
-    toast({ title: 'Reset link sent!', description: 'Check your email (or console logs) for the password reset link.' });
+    toast({ title: 'Reset link dispatched', description: 'Check your email inbox for password recovery instructions.' });
     setShowForgot(false);
   };
+
   const strength = passwordStrength(signupPassword);
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-      {/* Animated gradient background */}
-      <div className="fixed inset-0 gradient-primary" />
-      <div className="fixed top-20 left-20 w-72 h-72 rounded-full bg-primary/20 blur-3xl animate-float" />
-      <div className="fixed bottom-20 right-20 w-96 h-96 rounded-full bg-secondary/20 blur-3xl animate-float-delayed" />
-      <div className="fixed top-1/2 left-1/2 w-64 h-64 rounded-full bg-primary/10 blur-2xl animate-float" style={{ animationDelay: '1s' }} />
+    <div className="min-h-screen w-full bg-slate-950 flex flex-col justify-between items-center p-4 sm:p-6 lg:p-8 relative overflow-hidden font-sans text-slate-100 selection:bg-indigo-500 selection:text-white">
+      {/* Background Subtle Gradient Glows */}
+      <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[700px] h-[450px] rounded-full bg-indigo-600/15 blur-[160px] pointer-events-none" />
+      <div className="absolute bottom-[-10%] left-1/2 -translate-x-1/2 w-[600px] h-[400px] rounded-full bg-violet-600/10 blur-[150px] pointer-events-none" />
 
       {/* Forgot Password Modal */}
       {showForgot && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 backdrop-blur-sm" onClick={() => setShowForgot(false)}>
-          <div className="glass rounded-2xl p-8 max-w-md w-full mx-4 animate-slide-up shadow-glass" onClick={e => e.stopPropagation()}>
-            <h3 className="text-xl font-display font-bold text-foreground mb-2">Reset Password</h3>
-            <p className="text-muted-foreground text-sm mb-4">Enter your email to receive a reset link.</p>
-            <input type="email" placeholder="Email address" value={forgotEmail} onChange={e => setForgotEmail(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground mb-4 focus:ring-2 focus:ring-primary outline-none" />
-            <button onClick={handleForgotPassword}
-              className="w-full gradient-primary text-primary-foreground py-3 rounded-lg font-semibold hover:opacity-90 transition-opacity">
-              Send Reset Link
-            </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4 animate-fade-in" onClick={() => setShowForgot(false)}>
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-scale-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <Lock className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-xl font-bold text-white tracking-tight">Reset Password</h3>
+                <p className="text-xs text-slate-400">Enter your registered email to receive a recovery link</p>
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">Email Address</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="email" 
+                  placeholder="name@example.com" 
+                  value={forgotEmail} 
+                  onChange={e => setForgotEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all" 
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button 
+                type="button"
+                onClick={() => setShowForgot(false)}
+                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                type="button"
+                onClick={handleForgotPassword}
+                className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-500/25 transition-all"
+              >
+                Send Link
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Main Container */}
-      <div className="relative z-10 w-full max-w-5xl mx-4 glass rounded-3xl shadow-glass animate-slide-up overflow-hidden">
-        <div className="flex flex-col lg:flex-row min-h-[600px]">
-          
-          {/* Left: Marketing */}
-          <div className="lg:w-[58%] p-8 lg:p-12 flex flex-col justify-center gradient-primary text-primary-foreground relative overflow-hidden">
-            <div className="absolute inset-0 opacity-10">
-              <div className="absolute top-10 right-10 w-40 h-40 border border-primary-foreground/30 rounded-full" />
-              <div className="absolute bottom-10 left-10 w-60 h-60 border border-primary-foreground/20 rounded-full" />
-            </div>
-            <div className="relative z-10">
-              <h1 className="text-3xl lg:text-4xl font-display font-bold mb-4">
-                <span className="text-primary-foreground/80">Service</span>Hub
-              </h1>
-              <h2 className="text-2xl lg:text-3xl font-display font-bold mb-4">
-                Find <span className="underline decoration-warning decoration-2 underline-offset-4">Trusted</span> Local Service Providers
-              </h2>
-              <p className="text-primary-foreground/80 mb-8 leading-relaxed">
-                Connect with verified professionals for plumbing, electrical, cleaning, and more across Tamil Nadu.
-              </p>
-
-              <div className="flex gap-6 mb-8">
-                {[['500+', 'Verified Pros'], ['2k+', 'Happy Clients'], ['98%', 'Satisfaction']].map(([num, label]) => (
-                  <div key={label}>
-                    <div className="text-2xl font-display font-bold">{num}</div>
-                    <div className="text-sm text-primary-foreground/70">{label}</div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap gap-3 mb-8">
-                {['✓ Verified Pros', '💰 Fair Pricing', '📍 Live Tracking'].map(badge => (
-                  <span key={badge} className="px-3 py-1.5 rounded-full bg-primary-foreground/15 text-sm font-medium backdrop-blur-sm">
-                    {badge}
-                  </span>
-                ))}
-              </div>
-
-              <div className="bg-primary-foreground/10 backdrop-blur-sm rounded-xl p-5 border border-primary-foreground/10">
-                <p className="text-sm italic leading-relaxed mb-3">
-                  "Found an amazing plumber through ServiceHub. The live tracking feature is a game-changer!"
-                </p>
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-full bg-primary-foreground/20 flex items-center justify-center text-sm">R</div>
-                  <div>
-                    <div className="text-sm font-semibold">Rajesh Kumar</div>
-                    <div className="text-xs text-primary-foreground/60">Customer, Chennai</div>
-                  </div>
-                </div>
-              </div>
+      {/* Top Header Logo Banner (Flipkart / Amazon Style) */}
+      <header className="pt-4 pb-6 relative z-10 text-center">
+        <div className="inline-flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-500 to-violet-600 p-0.5 shadow-xl shadow-indigo-500/30">
+            <div className="w-full h-full bg-slate-950 rounded-[14px] flex items-center justify-center text-indigo-400 font-extrabold text-xl">
+              S
             </div>
           </div>
-
-          {/* Right: Auth Forms */}
-          <div className="lg:w-[42%] p-8 lg:p-10 flex flex-col justify-center bg-card">
-            {/* Tab switcher */}
-            <div className="flex rounded-lg bg-muted p-1 mb-6">
-              <button onClick={() => setTab('login')} className={`flex-1 py-2.5 rounded-md text-sm font-semibold transition-all ${tab === 'login' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}>
-                Login
-              </button>
-              <button onClick={() => setTab('signup')} className={`flex-1 py-2.5 rounded-md text-sm font-semibold transition-all ${tab === 'signup' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'}`}>
-                Sign Up
-              </button>
-            </div>
-
-            {tab === 'login' ? (
-              <form onSubmit={handleLogin} className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1 block">Email</label>
-                  <input type="email" required value={loginEmail} onChange={e => setLoginEmail(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none transition-all" placeholder="you@example.com" />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-foreground mb-1 block">Password</label>
-                  <input type="password" required value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
-                    className="w-full px-4 py-3 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none transition-all" placeholder="••••••••" />
-                </div>
-                <div className="flex justify-end">
-                  <button type="button" onClick={() => setShowForgot(true)} className="text-sm text-primary hover:underline">Forgot password?</button>
-                </div>
-                <button type="submit" disabled={loading}
-                  className="w-full gradient-primary text-primary-foreground py-3 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                  {loading && <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />}
-                  Login to ServiceHub
-                </button>
-                <div className="relative flex items-center py-1">
-                  <div className="flex-1 border-t border-border" />
-                  <span className="px-3 text-xs font-medium text-muted-foreground">OR</span>
-                  <div className="flex-1 border-t border-border" />
-                </div>
-                {googleClientId ? (
-                  <div ref={googleButtonRef} className="flex justify-center min-h-[44px]" />
-                ) : (
-                  <button type="button" disabled
-                    className="w-full border border-border bg-muted text-muted-foreground py-3 rounded-lg font-semibold cursor-not-allowed">
-                    Continue with Google
-                  </button>
-                )}
-                <p className="text-center text-sm text-muted-foreground">
-                  Don't have an account? <button type="button" onClick={() => setTab('signup')} className="text-primary font-medium hover:underline">Sign up</button>
-                </p>
-              </form>
-            ) : (
-              <form onSubmit={handleSignup} className="space-y-3">
-                {/* User Type Selector */}
-                <div className="flex gap-3 mb-2">
-                  {(['customer', 'provider'] as const).map(type => (
-                    <button key={type} type="button" onClick={() => setUserType(type)}
-                      className={`flex-1 p-3 rounded-lg border-2 transition-all text-center ${userType === type ? 'border-primary bg-accent' : 'border-border hover:border-primary/50'}`}>
-                      <div className="text-xl">{type === 'customer' ? '👤' : '🔧'}</div>
-                      <div className="text-xs font-medium text-foreground capitalize">{type}</div>
-                    </button>
-                  ))}
-                </div>
-                <input type="text" required placeholder="Full Name" value={signupName} onChange={e => setSignupName(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
-                <input type="email" required placeholder="Email Address" value={signupEmail} onChange={e => setSignupEmail(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
-                <input type="tel" placeholder="Phone Number (10 digits)" value={signupPhone} onChange={e => setSignupPhone(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
-                <select value={signupLocation} onChange={e => setSignupLocation(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none">
-                  {districts.map(d => <option key={d} value={d}>{d}</option>)}
-                </select>
-                <div>
-                  <input type="password" required placeholder="Password (min 6 chars)" value={signupPassword} onChange={e => setSignupPassword(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
-                  {signupPassword && (
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className={`h-full rounded-full ${strength.color} transition-all`} style={{ width: strength.width }} />
-                      </div>
-                      <span className="text-xs text-muted-foreground">{strength.label}</span>
-                    </div>
-                  )}
-                </div>
-                <input type="password" required placeholder="Confirm Password" value={signupConfirm} onChange={e => setSignupConfirm(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
-                <button type="submit" disabled={loading}
-                  className="w-full gradient-primary text-primary-foreground py-3 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
-                  {loading && <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />}
-                  Create Account
-                </button>
-                <p className="text-center text-sm text-muted-foreground">
-                  Already have an account? <button type="button" onClick={() => setTab('login')} className="text-primary font-medium hover:underline">Login</button>
-                </p>
-              </form>
-            )}
+          <div className="text-left">
+            <span className="text-2xl font-extrabold tracking-tight text-white block leading-none">
+              Service<span className="text-indigo-400">Hub</span>
+            </span>
+            <span className="text-[10px] tracking-wider uppercase font-bold text-slate-400">Official Portal</span>
           </div>
         </div>
-      </div>
+      </header>
+
+      {/* Main Single Centered Auth Card (Amazon / Flipkart / Apple / Stripe Style) */}
+      <main className="relative z-10 w-full max-w-[440px] my-auto">
+        <div className="bg-slate-900/90 border border-slate-800 backdrop-blur-2xl rounded-3xl shadow-[0_20px_60px_rgba(0,0,0,0.7)] p-6 sm:p-8 space-y-6">
+          
+          {/* Title & Segmented Switcher */}
+          <div className="space-y-4">
+            <div className="text-center space-y-1">
+              <h1 className="text-2xl font-bold tracking-tight text-white">
+                {tab === 'login' ? 'Sign In' : 'Create Account'}
+              </h1>
+              <p className="text-xs text-slate-400">
+                {tab === 'login' 
+                  ? 'Access your ServiceHub account' 
+                  : 'Get started with verified local services'}
+              </p>
+            </div>
+
+            {/* Top Switcher Bar */}
+            <div className="bg-slate-950 p-1 rounded-2xl border border-slate-800 flex">
+              <button
+                type="button"
+                onClick={() => setTab('login')}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  tab === 'login'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab('signup')}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${
+                  tab === 'signup'
+                    ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/20'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                New Account
+              </button>
+            </div>
+          </div>
+
+          {/* Form Area */}
+          {tab === 'login' ? (
+            /* SIGN IN FORM */
+            <form onSubmit={handleLogin} className="space-y-4">
+              {/* Email */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Email Address</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="email"
+                    required
+                    value={loginEmail}
+                    onChange={e => setLoginEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              {/* Password */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Password</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgot(true)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors"
+                  >
+                    Forgot?
+                  </button>
+                </div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={loginPassword}
+                    onChange={e => setLoginPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-10 pr-10 py-3 bg-slate-950 border border-slate-800 rounded-xl text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* CTA Button */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99]"
+              >
+                {loading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Sign In <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
+              {/* Divider */}
+              <div className="relative flex items-center py-2">
+                <div className="flex-1 border-t border-slate-800" />
+                <span className="px-3 text-[10px] uppercase font-extrabold text-slate-500 tracking-wider">OR</span>
+                <div className="flex-1 border-t border-slate-800" />
+              </div>
+
+              {/* Google SSO */}
+              {googleClientId ? (
+                <div ref={googleButtonRef} className="flex justify-center min-h-[44px]" />
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  className="w-full border border-slate-800 bg-slate-950/40 text-slate-500 py-3 rounded-xl text-xs font-semibold cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  Google Sign In Unavailable
+                </button>
+              )}
+
+              <p className="text-center text-xs text-slate-400 pt-2">
+                New to ServiceHub?{' '}
+                <button
+                  type="button"
+                  onClick={() => setTab('signup')}
+                  className="text-indigo-400 font-bold hover:text-indigo-300 transition-colors"
+                >
+                  Create an Account
+                </button>
+              </p>
+            </form>
+          ) : (
+            /* CREATE ACCOUNT FORM */
+            <form onSubmit={handleSignup} className="space-y-3.5">
+              {/* Account Type Selector */}
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Account Role</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setUserType('customer')}
+                    className={`p-2.5 rounded-xl border-2 transition-all flex items-center gap-2.5 ${
+                      userType === 'customer'
+                        ? 'border-indigo-500 bg-indigo-500/10 text-white shadow-md'
+                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <User className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="text-xs font-bold block">Customer</div>
+                      <div className="text-[9px] text-slate-400">Book services</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setUserType('provider')}
+                    className={`p-2.5 rounded-xl border-2 transition-all flex items-center gap-2.5 ${
+                      userType === 'provider'
+                        ? 'border-indigo-500 bg-indigo-500/10 text-white shadow-md'
+                        : 'border-slate-800 bg-slate-950 text-slate-400 hover:border-slate-700'
+                    }`}
+                  >
+                    <Wrench className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <div className="text-left">
+                      <div className="text-xs font-bold block">Provider</div>
+                      <div className="text-[9px] text-slate-400">Offer services</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Name Input */}
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  placeholder="Full Name"
+                  value={signupName}
+                  onChange={e => setSignupName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                />
+              </div>
+
+              {/* Email Input */}
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  placeholder="Email Address"
+                  value={signupEmail}
+                  onChange={e => setSignupEmail(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                />
+              </div>
+
+              {/* Grid: Phone & Location */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="tel"
+                    placeholder="Phone (10 digits)"
+                    value={signupPhone}
+                    onChange={e => setSignupPhone(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  />
+                </div>
+
+                <div className="relative">
+                  <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <select
+                    value={signupLocation}
+                    onChange={e => setSignupLocation(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  >
+                    {districts.map(d => <option key={d} value={d} className="bg-slate-900 text-white">{d}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Password */}
+              <div>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    placeholder="Password (min 6 chars)"
+                    value={signupPassword}
+                    onChange={e => setSignupPassword(e.target.value)}
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {signupPassword && (
+                  <div className="flex items-center gap-2 mt-1.5 px-1">
+                    <div className="flex-1 h-1 rounded-full bg-slate-800 overflow-hidden">
+                      <div className={`h-full ${strength.color} transition-all`} style={{ width: strength.width }} />
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-medium">{strength.label}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Confirm Password */}
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  required
+                  placeholder="Confirm Password"
+                  value={signupConfirm}
+                  onChange={e => setSignupConfirm(e.target.value)}
+                  className="w-full pl-10 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-all"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-500/25 transition-all flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.99] mt-2"
+              >
+                {loading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <>
+                    Create Account <CheckCircle2 className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+
+              <p className="text-center text-xs text-slate-400 pt-1">
+                Already registered?{' '}
+                <button
+                  type="button"
+                  onClick={() => setTab('login')}
+                  className="text-indigo-400 font-bold hover:text-indigo-300 transition-colors"
+                >
+                  Sign In
+                </button>
+              </p>
+            </form>
+          )}
+        </div>
+      </main>
+
+      {/* Top Company Style Trust & Footer Bar (Amazon / Flipkart Style) */}
+      <footer className="relative z-10 pt-6 pb-2 text-center space-y-3">
+        {/* Trust Badges */}
+        <div className="flex flex-wrap items-center justify-center gap-4 text-slate-400 text-xs font-medium">
+          <span className="flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-400" /> 256-Bit SSL Encrypted
+          </span>
+          <span className="hidden sm:inline text-slate-700">·</span>
+          <span className="flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-amber-400" /> Verified Professionals
+          </span>
+          <span className="hidden sm:inline text-slate-700">·</span>
+          <span className="flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-indigo-400" /> 100% Satisfaction Guarantee
+          </span>
+        </div>
+
+        {/* Footer Legal Links */}
+        <p className="text-[11px] text-slate-500">
+          © {new Date().getFullYear()} ServiceHub Technologies Inc. All rights reserved. ·{' '}
+          <a href="#" className="hover:text-slate-400 transition-colors">Privacy Policy</a> ·{' '}
+          <a href="#" className="hover:text-slate-400 transition-colors">Terms of Service</a> ·{' '}
+          <a href="#" className="hover:text-slate-400 transition-colors">Help Center</a>
+        </p>
+      </footer>
     </div>
   );
 };

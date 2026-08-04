@@ -6,6 +6,7 @@ import { toast } from '@/hooks/use-toast';
 import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle } from 'lucide-react';
 import AdminServiceCatalogTab from '@/components/admin/AdminServiceCatalogTab';
 import AdminMarketplaceTab from '@/components/admin/AdminMarketplaceTab';
+import Footer from '@/components/Footer';
 
 interface ProviderProfile {
   id: string;
@@ -589,6 +590,7 @@ export default function AdminDashboard() {
           </div>
         )}
       </main>
+      <Footer />
     </div>
   );
 }
