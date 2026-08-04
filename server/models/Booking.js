@@ -30,8 +30,9 @@ const BookingSchema = new mongoose.Schema({
   customerName: { type: String, required: true },
   customerEmail: { type: String, required: true },
   advanceTransactionId: { type: String, default: '' },
-  paymentStatus: { type: String, default: 'Unpaid', enum: ['Unpaid', 'Paid'] },
-  materialsPaymentStatus: { type: String, default: 'Unpaid', enum: ['Unpaid', 'Paid'] },
+  paymentStatus: { type: String, default: 'Paid', enum: ['Unpaid', 'Paid'] },
+  payoutStatus: { type: String, default: 'Unpaid', enum: ['Unpaid', 'Paid'] },
+  materialsPaymentStatus: { type: String, default: 'Paid', enum: ['Unpaid', 'Paid'] },
   providerUpiId: { type: String, default: '' },
   razorpayOrderId: { type: String, default: '' },
   razorpayPaymentId: { type: String, default: '' },
@@ -44,7 +45,7 @@ const BookingSchema = new mongoose.Schema({
   priceBreakdown: {
     type: {
       subtotal:           { type: Number, default: 0 },
-      bookingFee:         { type: Number, default: 50 },
+      bookingFee:         { type: Number, default: 0 },
       platformFee:        { type: Number, default: 0 },
       taxes:              { type: Number, default: 0 },
       materialsTotal:     { type: Number, default: 0 },

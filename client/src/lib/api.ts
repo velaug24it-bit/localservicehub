@@ -47,7 +47,7 @@ export const api = {
     create: (data: any) => request('/api/bookings', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: string, updates: any) => request(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
     cancel: (id: string) => request(`/api/bookings/${id}/cancel`, { method: 'PUT' }),
-    pay: (id: string) => request(`/api/bookings/${id}/pay`, { method: 'PUT' })
+    pay: (id: string, paymentData?: any) => request(`/api/bookings/${id}/pay`, { method: 'PUT', body: JSON.stringify(paymentData || {}) })
   },
   notifications: {
     list: () => request('/api/notifications'),
@@ -122,8 +122,11 @@ export const api = {
     },
     payments: {
       list: () => request('/api/admin/payments'),
-      updateStatus: (id: string, data: { providerStatus?: string, materialsStatus?: string }) => 
-        request(`/api/admin/payments/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+      updateStatus: (id: string, data: { providerStatus?: string, materialsStatus?: string, payoutStatus?: string }) => 
+        request(`/api/admin/payments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      getDailyPayouts: () => request('/api/admin/daily-payouts'),
+      updatePayoutStatus: (bookingIds: string[], payoutStatus: string) =>
+        request('/api/admin/payouts/status', { method: 'PUT', body: JSON.stringify({ bookingIds, payoutStatus }) })
     },
     reactivationPayments: {
       list: () => request('/api/admin/reactivation-payments')

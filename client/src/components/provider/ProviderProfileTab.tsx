@@ -36,6 +36,9 @@ const ProviderProfileTab = ({ user }: Props) => {
   const [saving, setSaving] = useState(false);
   const [newService, setNewService] = useState({ name: '', price: '' });
 
+  const [revenueModel, setRevenueModel] = useState<'commission' | 'subscription'>('commission');
+  const [subscriptionActive, setSubscriptionActive] = useState<boolean>(false);
+
   useEffect(() => {
     loadProviderProfile();
   }, [user.id]);
@@ -53,6 +56,8 @@ const ProviderProfileTab = ({ user }: Props) => {
         if (data.serviceAreas) {
           setServiceAreas(data.serviceAreas as string[]);
         }
+        setRevenueModel(data.revenueModel || 'commission');
+        setSubscriptionActive(!!data.subscriptionActive);
         setProfileData({
           name: data.name,
           phone: data.phone || '',
@@ -106,6 +111,8 @@ const ProviderProfileTab = ({ user }: Props) => {
         availability: JSON.parse(JSON.stringify(availability)),
         serviceAreas: serviceAreas,
         upiId: profileData.upiId,
+        revenueModel,
+        subscriptionActive
       });
       toast({ title: 'Profile saved successfully!' });
     } catch (err: any) {
@@ -146,7 +153,7 @@ const ProviderProfileTab = ({ user }: Props) => {
             className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />
         </div>
         <div>
-          <label className="text-sm font-medium text-foreground mb-1 block">UPI ID (for final payment)</label>
+          <label className="text-sm font-medium text-foreground mb-1 block">UPI ID (for payout transfers)</label>
           <input value={profileData.upiId} onChange={e => setProfileData(p => ({ ...p, upiId: e.target.value }))}
             placeholder="e.g. 9876543210@paytm or name@upi"
             className="w-full px-4 py-2.5 rounded-lg border border-border bg-background text-foreground focus:ring-2 focus:ring-primary outline-none" />

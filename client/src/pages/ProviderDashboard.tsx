@@ -250,6 +250,102 @@ const ProviderDashboard = () => {
     }
   };
 
+  const isSubscriptionPlan = (user as any)?.revenueModel === 'subscription' && (user as any)?.subscriptionActive;
+  const subExpiresAt = (user as any)?.subscriptionExpiresAt ? new Date((user as any).subscriptionExpiresAt) : null;
+  const subStartAt = (user as any)?.subscriptionStartDate ? new Date((user as any).subscriptionStartDate) : null;
+
+  const subDaysRemaining = (() => {
+    if (!subExpiresAt) return 0;
+    const diffMs = subExpiresAt.getTime() - Date.now();
+    return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+  })();
+
+  const isSubExpiringSoon = isSubscriptionPlan && subDaysRemaining <= 2;
+
+  const [subSubmitting, setSubSubmitting] = useState(false);
+
+  const handleSubscribePlan499 = async () => {
+    setSubSubmitting(true);
+    try {
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        toast({ title: 'Payment SDK Error', description: 'Failed to load Razorpay.', variant: 'destructive' });
+        setSubSubmitting(false);
+        return;
+      }
+
+      const order = await api.payments.createOrder(499);
+
+      if (order.mock) {
+        setTimeout(async () => {
+          try {
+            await api.auth.updateProfile({
+              revenueModel: 'subscription',
+              subscriptionActive: true,
+              subscriptionPlan: 'monthly_499'
+            });
+            toast({ title: '🎉 Subscription Activated!', description: 'You now enjoy 0% commission on all completed bookings for 30 days.' });
+            window.location.reload();
+          } catch (err: any) {
+            toast({ title: 'Activation failed', description: err.message, variant: 'destructive' });
+          } finally {
+            setSubSubmitting(false);
+          }
+        }, 1200);
+        return;
+      }
+
+      const options = {
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'ServiceHub Subscription Plan',
+        description: 'Monthly ₹499 Subscription Plan (0% Commission)',
+        order_id: order.id,
+        handler: async () => {
+          try {
+            await api.auth.updateProfile({
+              revenueModel: 'subscription',
+              subscriptionActive: true,
+              subscriptionPlan: 'monthly_499'
+            });
+            toast({ title: '🎉 Subscription Activated!', description: 'You now enjoy 0% commission on all completed bookings for 30 days.' });
+            window.location.reload();
+          } catch (err: any) {
+            toast({ title: 'Subscription update failed', description: err.message, variant: 'destructive' });
+          } finally {
+            setSubSubmitting(false);
+          }
+        },
+        prefill: { name: user?.name || '', email: user?.email || '', contact: user?.phone || '' },
+        theme: { color: '#6366f1' }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (resp: any) => {
+        toast({ title: 'Payment Failed', description: resp.error?.description || 'Declined', variant: 'destructive' });
+        setSubSubmitting(false);
+      });
+      rzp.open();
+    } catch (err: any) {
+      toast({ title: 'Subscription initiation failed', description: err.message, variant: 'destructive' });
+      setSubSubmitting(false);
+    }
+  };
+
+  const handleSwitchToCommission = async () => {
+    try {
+      await api.auth.updateProfile({
+        revenueModel: 'commission',
+        subscriptionActive: false
+      });
+      toast({ title: 'Switched Model', description: 'Your revenue model is set to 5% Per-Work Commission.' });
+      window.location.reload();
+    } catch (err: any) {
+      toast({ title: 'Failed to switch model', description: err.message, variant: 'destructive' });
+    }
+  };
+
   const filteredBookings = filter === 'all' ? bookings : bookings.filter(b => b.status === filter);
 
   const waitingQueue = bookings
@@ -309,6 +405,24 @@ const ProviderDashboard = () => {
             className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-xs font-bold hover:opacity-90 transition-opacity shrink-0"
           >
             Reactivate Profile
+          </button>
+        </div>
+      )}
+
+      {/* 2-Day Subscription Expiration Warning Alert */}
+      {isSubExpiringSoon && (
+        <div className="bg-warning/15 border-b border-warning/30 text-warning px-6 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm font-semibold animate-pulse">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="w-5 h-5 text-warning shrink-0" />
+            <span>
+              <strong>Subscription Expiring Soon:</strong> Your ₹499/month subscription ends in <strong>{subDaysRemaining} day(s)</strong> ({subExpiresAt?.toLocaleDateString()}). Renew now to maintain 0% commission per job!
+            </span>
+          </div>
+          <button 
+            onClick={() => setActiveTab('subscription')}
+            className="bg-warning text-warning-foreground px-4 py-1.5 rounded-lg text-xs font-bold hover:opacity-90 transition-opacity shrink-0 shadow-sm"
+          >
+            Renew Plan (₹499)
           </button>
         </div>
       )}

@@ -20,7 +20,9 @@ const MarketplaceOrderSchema = new mongoose.Schema({
   grandTotal: { type: Number, required: true },
   deliveryMethod: { type: String, enum: ['Pickup', 'Delivery'], default: 'Pickup' },
   orderStatus: { type: String, enum: ['Placed', 'Preparing', 'ReadyForPickup', 'PickedUp', 'OutForDelivery', 'Delivered', 'Cancelled'], default: 'Placed' },
-  paymentStatus: { type: String, enum: ['Unpaid', 'Paid', 'Refunded'], default: 'Unpaid' },
+  paymentStatus: { type: String, enum: ['Unpaid', 'Paid', 'Refunded'], default: 'Paid' },
+  platformCommission: { type: Number, default: 0 },
+  shopEarnings: { type: Number, default: 0 },
   pickupQrCode: { type: String, default: '' }
 }, {
   timestamps: true

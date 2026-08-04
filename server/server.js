@@ -346,11 +346,26 @@ app.post('/api/auth/google', async (req, res) => {
   }
 });
 
+// Helper to check and auto-expire provider subscriptions
+const checkAndUpdateSubscription = async (userDoc) => {
+  if (!userDoc || userDoc.userType !== 'provider') return userDoc;
+  if (userDoc.revenueModel === 'subscription' && userDoc.subscriptionExpiresAt) {
+    const now = new Date();
+    if (new Date(userDoc.subscriptionExpiresAt) < now) {
+      userDoc.subscriptionActive = false;
+      userDoc.revenueModel = 'commission';
+      await userDoc.save();
+    }
+  }
+  return userDoc;
+};
+
 // Get profile
 app.get('/api/auth/profile', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.userId);
+    let user = await User.findById(req.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
+    user = await checkAndUpdateSubscription(user);
     res.json(user);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -360,7 +375,7 @@ app.get('/api/auth/profile', auth, async (req, res) => {
 // Update profile / provider details
 app.put('/api/auth/profile', auth, async (req, res) => {
   try {
-    const { name, phone, location, services, availability, serviceAreas, upiId } = req.body;
+    const { name, phone, location, services, availability, serviceAreas, upiId, revenueModel, subscriptionActive, subscriptionPlan } = req.body;
     
     const updates = {};
     if (name !== undefined) updates.name = name;
@@ -370,6 +385,18 @@ app.put('/api/auth/profile', auth, async (req, res) => {
     if (availability !== undefined) updates.availability = availability;
     if (serviceAreas !== undefined) updates.serviceAreas = serviceAreas;
     if (upiId !== undefined) updates.upiId = upiId;
+    if (revenueModel !== undefined) updates.revenueModel = revenueModel;
+    if (subscriptionActive !== undefined) {
+      updates.subscriptionActive = subscriptionActive;
+      if (subscriptionActive) {
+        updates.subscriptionStartDate = new Date();
+        updates.subscriptionExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        updates.revenueModel = 'subscription';
+      } else {
+        updates.revenueModel = 'commission';
+      }
+    }
+    if (subscriptionPlan !== undefined) updates.subscriptionPlan = subscriptionPlan;
 
     const user = await User.findByIdAndUpdate(req.userId, updates, { new: true });
     res.json(user);
@@ -645,6 +672,30 @@ app.post('/api/bookings', auth, async (req, res) => {
       priceBreakdown
     } = req.body;
 
+    // Check provider revenue model (Subscription vs 5% Commission)
+    let providerCommRate = 0.05;
+    if (mongoose.Types.ObjectId.isValid(providerId)) {
+      const pUser = await User.findById(providerId);
+      if (pUser && pUser.revenueModel === 'subscription' && pUser.subscriptionActive) {
+        providerCommRate = 0; // 0% commission for subscribers
+      }
+    }
+
+    const subtotalAmt = priceBreakdown?.subtotal || (parseInt(String(price).replace(/\D/g, '')) || 500);
+    const commAmt = Math.round(subtotalAmt * providerCommRate);
+    const provEarnings = subtotalAmt - commAmt;
+
+    const finalBreakdown = {
+      subtotal: subtotalAmt,
+      bookingFee: 0,
+      platformFee: 0,
+      taxes: 0,
+      materialsTotal: materialsRequired ? materialsTotal : 0,
+      grandTotal: subtotalAmt + (materialsRequired ? materialsTotal : 0),
+      platformCommission: commAmt,
+      providerEarnings: provEarnings
+    };
+
     const booking = new Booking({
       trackingId,
       userId: req.userId,
@@ -665,7 +716,8 @@ app.post('/api/bookings', auth, async (req, res) => {
       advanceTransactionId: razorpayPaymentId || advanceTransactionId || '',
       providerUpiId: finalProviderUpiId,
       paymentStatus: 'Unpaid',
-      materialsPaymentStatus: materialsRequired ? 'Paid' : 'Unpaid',
+      payoutStatus: 'Unpaid',
+      materialsPaymentStatus: materialsRequired ? 'Unpaid' : 'Unpaid',
       razorpayOrderId: razorpayOrderId || '',
       razorpayPaymentId: razorpayPaymentId || '',
       razorpaySignature: razorpaySignature || '',
@@ -673,7 +725,7 @@ app.post('/api/bookings', auth, async (req, res) => {
       serviceItems,
       materialsRequired,
       materialsTotal,
-      priceBreakdown
+      priceBreakdown: finalBreakdown
     });
 
     await booking.save();
@@ -712,6 +764,10 @@ app.post('/api/bookings', auth, async (req, res) => {
           }
         }
 
+        const matGrandTotal = matSubtotal + deliveryCharge;
+        const matPlatformCommission = Math.round(matGrandTotal * 0.05); // 5% marketplace commission
+        const matShopEarnings = matGrandTotal - matPlatformCommission;
+
         const order = new MarketplaceOrder({
           bookingId: booking._id,
           customerId: req.userId,
@@ -720,10 +776,12 @@ app.post('/api/bookings', auth, async (req, res) => {
           products: orderedProducts,
           subtotal: matSubtotal,
           deliveryCharge,
-          grandTotal: matSubtotal + deliveryCharge,
+          grandTotal: matGrandTotal,
           deliveryMethod: deliveryMethod || 'Pickup',
           orderStatus: 'Placed',
           paymentStatus: 'Paid',
+          platformCommission: matPlatformCommission,
+          shopEarnings: matShopEarnings,
           pickupQrCode: 'QR_SH_' + booking.id.slice(-6).toUpperCase()
         });
 
@@ -745,16 +803,15 @@ app.post('/api/bookings', auth, async (req, res) => {
             products: orderedProducts,
             subtotal: matSubtotal,
             deliveryCharge,
-            grandTotal: matSubtotal + deliveryCharge
+            grandTotal: matGrandTotal
           },
-          amount: matSubtotal + deliveryCharge
+          amount: matGrandTotal
         });
         await matInv.save();
       }
     }
 
     // Always generate Provider Labour Invoice
-    const labourCharge = priceBreakdown ? priceBreakdown.subtotal : (parseInt(String(price).replace(/\D/g, '')) || 500);
     const provInv = new Invoice({
       invoiceId: 'INV_PROV_' + Date.now().toString().slice(-8),
       bookingId: booking.id,
@@ -764,18 +821,15 @@ app.post('/api/bookings', auth, async (req, res) => {
       details: {
         providerName,
         serviceType,
-        labourCharge,
+        labourCharge: subtotalAmt,
         quantity: 1,
-        grandTotal: labourCharge
+        grandTotal: subtotalAmt
       },
-      amount: labourCharge
+      amount: subtotalAmt
     });
     await provInv.save();
 
     // Always generate ServiceHub platform fee invoice
-    const bookingFee = priceBreakdown ? priceBreakdown.bookingFee : 50;
-    const platformFee = priceBreakdown ? priceBreakdown.platformFee : 0;
-    const taxes = priceBreakdown ? priceBreakdown.taxes : 0;
     const shInv = new Invoice({
       invoiceId: 'INV_SH_' + Date.now().toString().slice(-8),
       bookingId: booking.id,
@@ -783,13 +837,14 @@ app.post('/api/bookings', auth, async (req, res) => {
       recipientId: req.userId,
       senderId: 'servicehub',
       details: {
-        bookingFee,
-        platformFee,
-        taxes,
-        grandTotal: bookingFee + platformFee + taxes
+        bookingFee: 0,
+        platformFee: commAmt,
+        taxes: 0,
+        grandTotal: commAmt
       },
-      amount: bookingFee + platformFee + taxes
+      amount: commAmt
     });
+    await shInv.save();
     await shInv.save();
 
     // Create notification for Provider
@@ -879,19 +934,47 @@ app.put('/api/bookings/:id/cancel', auth, async (req, res) => {
 // Confirm booking final payment
 app.put('/api/bookings/:id/pay', auth, async (req, res) => {
   try {
-    const booking = await Booking.findByIdAndUpdate(
-      req.params.id,
-      { paymentStatus: 'Paid' },
-      { new: true }
-    );
+    const { razorpayPaymentId, razorpayOrderId, razorpaySignature, advanceTransactionId } = req.body;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (keySecret && razorpayOrderId && razorpayPaymentId && razorpaySignature) {
+      const generated_signature = crypto
+        .createHmac('sha256', keySecret)
+        .update(razorpayOrderId + '|' + razorpayPaymentId)
+        .digest('hex');
+      if (generated_signature !== razorpaySignature) {
+        return res.status(400).json({ error: 'Payment signature validation failed' });
+      }
+    }
+
+    const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
-    // Notify provider that payment is confirmed
+    booking.paymentStatus = 'Paid';
+    booking.materialsPaymentStatus = 'Paid';
+    if (razorpayPaymentId) booking.razorpayPaymentId = razorpayPaymentId;
+    if (razorpayOrderId) booking.razorpayOrderId = razorpayOrderId;
+    if (razorpaySignature) booking.razorpaySignature = razorpaySignature;
+    if (advanceTransactionId || razorpayPaymentId) {
+      booking.advanceTransactionId = razorpayPaymentId || advanceTransactionId || booking.advanceTransactionId;
+    }
+
+    await booking.save();
+
+    if (booking.marketplaceOrderId) {
+      const order = await MarketplaceOrder.findById(booking.marketplaceOrderId);
+      if (order) {
+        order.paymentStatus = 'Paid';
+        await order.save();
+      }
+    }
+
+    // Notify provider that online payment is confirmed
     if (mongoose.Types.ObjectId.isValid(booking.providerId)) {
       await createAndSendNotification({
         userId: booking.providerId,
-        title: '💰 Payment Confirmed',
-        message: `${booking.customerName} has marked payment of ${booking.price} as Paid.`,
+        title: '💰 Online Payment Received',
+        message: `${booking.customerName} completed online payment for ${booking.serviceType} via Razorpay.`,
         type: 'booking_payment',
         bookingId: booking.id
       });
@@ -1160,12 +1243,13 @@ app.get('/api/admin/payments', auth, adminOnly, async (req, res) => {
 // Update payments ledger (Admin)
 app.put('/api/admin/payments/:id', auth, adminOnly, async (req, res) => {
   try {
-    const { providerStatus, materialsStatus } = req.body;
+    const { providerStatus, materialsStatus, payoutStatus } = req.body;
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     
     if (providerStatus) booking.paymentStatus = providerStatus;
     if (materialsStatus) booking.materialsPaymentStatus = materialsStatus;
+    if (payoutStatus) booking.payoutStatus = payoutStatus;
     
     await booking.save();
 
@@ -1180,6 +1264,85 @@ app.put('/api/admin/payments/:id', auth, adminOnly, async (req, res) => {
     }
 
     res.json(booking);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Fetch daily provider payouts summary (Admin)
+app.get('/api/admin/daily-payouts', auth, adminOnly, async (req, res) => {
+  try {
+    const bookings = await Booking.find().sort({ createdAt: -1 });
+    const providers = await User.find({ userType: 'provider' });
+    const providerMap = new Map(providers.map(p => [p.id, p]));
+
+    const payoutsMap = {};
+
+    for (const b of bookings) {
+      const dateKey = b.date || (b.createdAt ? b.createdAt.toISOString().split('T')[0] : 'N/A');
+      const pId = b.providerId;
+      const key = `${dateKey}_${pId}`;
+
+      if (!payoutsMap[key]) {
+        const pUser = providerMap.get(pId);
+        payoutsMap[key] = {
+          key,
+          date: dateKey,
+          providerId: pId,
+          providerName: b.providerName || (pUser ? pUser.name : 'Unknown Provider'),
+          providerPhone: pUser ? pUser.phone : '',
+          providerEmail: pUser ? pUser.email : b.customerEmail,
+          providerUpiId: b.providerUpiId || (pUser ? pUser.upiId : 'Not Provided'),
+          revenueModel: pUser ? (pUser.revenueModel || 'commission') : 'commission',
+          subscriptionActive: pUser ? !!pUser.subscriptionActive : false,
+          totalCollectedByWebsite: 0,
+          platformRevenue: 0,
+          netPayoutOwed: 0,
+          payoutStatus: b.payoutStatus || 'Unpaid',
+          bookingCount: 0,
+          bookingIds: []
+        };
+      }
+
+      const pb = b.priceBreakdown || {};
+      const subtotal = pb.subtotal || parseInt(String(b.price).replace(/\D/g, '')) || 0;
+      const matTotal = pb.materialsTotal || b.materialsTotal || 0;
+      const comm = pb.platformCommission !== undefined ? pb.platformCommission : Math.round(subtotal * 0.05);
+      const provEarnt = pb.providerEarnings !== undefined ? pb.providerEarnings : (subtotal - comm);
+
+      const totalPaidOnline = subtotal + matTotal;
+
+      payoutsMap[key].totalCollectedByWebsite += totalPaidOnline;
+      payoutsMap[key].platformRevenue += comm;
+      payoutsMap[key].netPayoutOwed += provEarnt;
+      payoutsMap[key].bookingCount += 1;
+      payoutsMap[key].bookingIds.push(b.id);
+      if (b.payoutStatus === 'Paid') {
+        payoutsMap[key].payoutStatus = 'Paid';
+      }
+    }
+
+    const dailyPayouts = Object.values(payoutsMap).sort((a, b) => b.date.localeCompare(a.date));
+    res.json(dailyPayouts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Batch update daily payout status (Admin)
+app.put('/api/admin/payouts/status', auth, adminOnly, async (req, res) => {
+  try {
+    const { bookingIds, payoutStatus } = req.body;
+    if (!Array.isArray(bookingIds) || !payoutStatus) {
+      return res.status(400).json({ error: 'bookingIds[] and payoutStatus are required' });
+    }
+
+    await Booking.updateMany(
+      { _id: { $in: bookingIds } },
+      { $set: { payoutStatus } }
+    );
+
+    res.json({ success: true, count: bookingIds.length, payoutStatus });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1755,7 +1918,15 @@ app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
       return res.status(400).json({ error: 'providerId and serviceItems[] are required' });
     }
 
-    const BOOKING_FEE = 50;
+    let commRate = 0.05;
+    if (mongoose.Types.ObjectId.isValid(providerId)) {
+      const pUser = await User.findById(providerId);
+      if (pUser && pUser.revenueModel === 'subscription' && pUser.subscriptionActive) {
+        commRate = 0;
+      }
+    }
+
+    const BOOKING_FEE = 0;
 
     let subtotal = 0;
     const calculatedItems = [];
@@ -1798,14 +1969,14 @@ app.post('/api/pricing/calculate-booking', auth, async (req, res) => {
 
     const platformFee = 0;
     const grandTotal = subtotal;
-    const platformCommission = BOOKING_FEE;
-    const providerEarnings = subtotal;
+    const platformCommission = Math.round(subtotal * commRate);
+    const providerEarnings = subtotal - platformCommission;
 
     res.json({
       serviceItems: calculatedItems,
       priceBreakdown: {
         subtotal,
-        bookingFee: BOOKING_FEE,
+        bookingFee: 0,
         platformFee,
         taxes: 0,
         grandTotal,
@@ -2047,11 +2218,13 @@ app.post('/api/marketplace/calculate-checkout', auth, async (req, res) => {
       });
     }
 
-    const bookingFee = 50;
+    const bookingFee = 0;
     const platformFee = 0;
     const taxes = 0;
     const materialsTotal = subtotal + deliveryCharge;
     const grandTotal = materialsTotal;
+    const platformCommission = Math.round(materialsTotal * 0.05); // 5% marketplace commission
+    const shopEarnings = materialsTotal - platformCommission;
 
     res.json({
       shopId,
@@ -2060,14 +2233,18 @@ app.post('/api/marketplace/calculate-checkout', auth, async (req, res) => {
       subtotal,
       deliveryCharge,
       materialsTotal,
+      platformCommission,
+      shopEarnings,
       priceBreakdown: {
         subtotal,
         deliveryCharge,
         materialsTotal,
-        bookingFee,
+        bookingFee: 0,
         platformFee,
         taxes,
-        grandTotal
+        grandTotal,
+        platformCommission,
+        shopEarnings
       }
     });
   } catch (err) {

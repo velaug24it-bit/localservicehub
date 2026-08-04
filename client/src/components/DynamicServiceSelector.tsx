@@ -133,10 +133,10 @@ export default function DynamicServiceSelector({
       } catch {
         // Fallback: compute locally
         const subtotal = cart.reduce((s, c) => s + c.subtotal, 0);
-        const bookingFee = 50;
+        const bookingFee = 0;
         const platformFee = 0;
         const grandTotal = subtotal;
-        const fb: PriceBreakdown = { subtotal, bookingFee, platformFee, taxes: 0, grandTotal, providerEarnings: subtotal, platformCommission: bookingFee };
+        const fb: PriceBreakdown = { subtotal, bookingFee, platformFee, taxes: 0, grandTotal, providerEarnings: Math.round(subtotal * 0.95), platformCommission: Math.round(subtotal * 0.05) };
         setBreakdown(fb);
         onServiceItemsChange(cart, fb);
       } finally {
@@ -366,16 +366,12 @@ export default function DynamicServiceSelector({
                 <span>Subtotal (Service Amount)</span>
                 <span>₹{(breakdown?.subtotal ?? 0).toLocaleString('en-IN')}</span>
               </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Booking Fee (Platform Advance)</span>
-                <span className="font-semibold text-foreground">₹{breakdown?.bookingFee ?? 50}</span>
-              </div>
               <div className="flex justify-between text-sm font-bold text-foreground border-t border-border pt-1.5 mt-1">
                 <span>Total Service Price</span>
                 <span className="text-primary">₹{(breakdown?.grandTotal ?? 0).toLocaleString('en-IN')}</span>
               </div>
               <div className="text-[10px] text-muted-foreground leading-tight mt-1 pt-1 border-t border-dashed border-border/40">
-                ℹ️ The ₹{breakdown?.bookingFee ?? 50} booking fee is paid online now as an advance to confirm booking. The service total (₹{(breakdown?.grandTotal ?? 0).toLocaleString('en-IN')}) is payable directly to the provider.
+                ℹ️ Full payment of ₹{(breakdown?.grandTotal ?? 0).toLocaleString('en-IN')} is paid online to ServiceHub website upon booking.
               </div>
             </div>
           )}

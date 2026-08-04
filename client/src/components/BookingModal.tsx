@@ -105,12 +105,10 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
     : serviceType;
 
   const labourSubtotal = priceBreakdown?.subtotal || 0;
-  // Customer ALWAYS pays only ₹50 platform fee upfront at booking.
-  // Labour is paid directly to provider after service completion.
-  // Materials cost is tracked separately for the partner shop.
-  const PLATFORM_FEE = 50;
-  const paymentAmount = PLATFORM_FEE + (materialsRequired ? materialsTotal : 0); // Platform fee + optional materials upfront
-  const fullOrderTotal = labourSubtotal + (materialsRequired ? materialsTotal : 0) + PLATFORM_FEE;
+  // Customer pays 100% of service charge + materials upfront to website gateway.
+  const PLATFORM_FEE = 0;
+  const paymentAmount = labourSubtotal + (materialsRequired ? materialsTotal : 0);
+  const fullOrderTotal = paymentAmount;
 
   // ── Step 1 Validation ──────────────────────────────────────────────
   const handleNextStep = (e: React.FormEvent) => {
@@ -243,7 +241,7 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
         amount: order.amount,
         currency: order.currency,
         name: 'ServiceHub',
-        description: materialsRequired ? 'Labour + Materials + Booking Fee' : '₹50 Booking Advance Payment',
+        description: materialsRequired ? 'Service Labour + Materials Total Payment' : 'Full Service Booking Payment to Website',
         order_id: order.id,
         handler: async (response: any) => {
           try {
@@ -283,13 +281,13 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
     try {
       const checkoutBreakdown = {
         subtotal: labourSubtotal,
-        bookingFee: 50,
+        bookingFee: 0,
         platformFee: 0,
         taxes: 0,
         materialsTotal: materialsRequired ? materialsTotal : 0,
         grandTotal: paymentAmount,
-        providerEarnings: labourSubtotal,
-        platformCommission: 50
+        providerEarnings: Math.round(labourSubtotal * 0.95),
+        platformCommission: Math.round(labourSubtotal * 0.05)
       };
 
       const booking = await addBooking({
@@ -559,26 +557,10 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
                   </div>
                 )}
 
-                {/* Section 3: Platform Fee — paid NOW */}
-                <div className="p-3.5 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-[10px] uppercase tracking-wider text-muted-foreground">ServiceHub Charges</span>
-                    <span className="text-[10px] bg-success/10 text-success font-bold px-2 py-0.5 rounded-full">Paid now ✓</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Platform Booking Fee</span>
-                    <span className="font-bold text-foreground">₹50</span>
-                  </div>
-                </div>
-
                 {/* Grand Total summary row */}
                 <div className="p-3.5 bg-muted/30">
-                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                    <span>Full Order Value (informational)</span>
-                    <span>₹{fullOrderTotal.toLocaleString('en-IN')}</span>
-                  </div>
                   <div className="flex justify-between font-extrabold text-sm text-primary">
-                    <span>Pay Now ({materialsRequired && materialsTotal > 0 ? 'Platform + Materials' : 'Platform Fee'})</span>
+                    <span>Total Service Value</span>
                     <span>₹{paymentAmount.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
@@ -586,56 +568,45 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
             </div>
 
             {/* Payment note */}
-            <div className="bg-success/5 border border-success/20 rounded-xl p-3.5 space-y-2">
-              <span className="text-xs font-bold uppercase tracking-wide text-success block">🔒 How Payments Work</span>
-              <ul className="text-[11px] text-muted-foreground space-y-1 leading-relaxed">
-                <li>✅ <strong>₹{paymentAmount.toLocaleString('en-IN')} now</strong> — Platform booking fee{materialsRequired && materialsTotal > 0 ? ' + Materials cost' : ''} (via Razorpay)</li>
-                {labourSubtotal > 0 && <li>🔧 <strong>₹{labourSubtotal.toLocaleString('en-IN')} after service</strong> — Labour paid directly to {provider.name}</li>}
-              </ul>
+            <div className="bg-primary/5 border border-primary/20 rounded-xl p-3.5 space-y-2">
+              <span className="text-xs font-bold uppercase tracking-wide text-primary block">🔒 No Payment Required Right Now</span>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Your booking will be confirmed immediately. You will pay <strong>₹{paymentAmount.toLocaleString('en-IN')}</strong> online via Razorpay to ServiceHub website <strong>after {provider.name} completes your service work</strong>.
+              </p>
             </div>
 
             {/* Processing spinner */}
-            {mockPaying && (
-              <div className="flex flex-col items-center justify-center py-4 space-y-2 bg-muted/50 rounded-lg">
+            {loading && (
+              <div className="flex flex-col items-center justify-center py-3 space-y-2 bg-muted/50 rounded-lg">
                 <span className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                <span className="text-xs text-muted-foreground font-medium animate-pulse">Processing payment...</span>
+                <span className="text-xs text-muted-foreground font-medium animate-pulse">Confirming your booking...</span>
               </div>
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-2 pt-1">
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setStep(2)}
-                  disabled={loading}
-                  className="flex-1 py-2.5 rounded-lg border border-border text-foreground font-medium hover:bg-muted transition-colors disabled:opacity-50 active:scale-95"
-                >
-                  ← Back
-                </button>
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={handleRazorpayPayment}
-                  className="flex-1 gradient-primary text-primary-foreground py-2.5 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95"
-                >
-                  {loading && !mockPaying && <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />}
-                  🔒 Pay ₹{paymentAmount.toLocaleString('en-IN')} to Book
-                </button>
-              </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setStep(2)}
+                disabled={loading}
+                className="flex-1 py-2.5 rounded-lg border border-border text-foreground font-medium hover:bg-muted transition-colors disabled:opacity-50 active:scale-95"
+              >
+                ← Back
+              </button>
               <button
                 type="button"
                 disabled={loading}
                 onClick={async () => {
                   try {
-                    await submitBooking({ advanceTransactionId: 'PAY_LATER' });
+                    await submitBooking({ advanceTransactionId: 'PAY_AFTER_COMPLETION' });
                   } catch (err) {
                     toast({ title: 'Booking failed', description: getErrorMessage(err, 'Failed to complete booking'), variant: 'destructive' });
                   }
                 }}
-                className="w-full py-1.5 text-xs text-muted-foreground hover:text-foreground hover:underline transition-colors text-center font-medium"
+                className="flex-[2] gradient-primary text-primary-foreground py-2.5 rounded-lg font-semibold hover:opacity-90 transition-all disabled:opacity-50 flex items-center justify-center gap-2 active:scale-95"
               >
-                Skip &amp; Pay Later (Test)
+                {loading && <span className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />}
+                ✅ Confirm &amp; Place Booking
               </button>
             </div>
           </div>

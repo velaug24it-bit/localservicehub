@@ -15,7 +15,12 @@ const UserSchema = new mongoose.Schema({
   upiId: { type: String, default: '' },
   approved: { type: Boolean, default: true },
   isActive: { type: Boolean, default: true },
-  lastActivationDate: { type: Date, default: Date.now }
+  lastActivationDate: { type: Date, default: Date.now },
+  revenueModel: { type: String, enum: ['commission', 'subscription'], default: 'commission' },
+  subscriptionActive: { type: Boolean, default: false },
+  subscriptionPlan: { type: String, default: 'monthly_standard' },
+  subscriptionStartDate: { type: Date, default: null },
+  subscriptionExpiresAt: { type: Date, default: null }
 }, {
   timestamps: true
 });

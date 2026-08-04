@@ -239,6 +239,92 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
     }
   }, [bookings]);
 
+const loadRazorpayScript = () => {
+  return new Promise((resolve) => {
+    if ((window as any).Razorpay) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+};
+
+  const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+
+  const handleRazorpayPayBooking = async (b: Booking) => {
+    setPayingBookingId(b.id);
+    try {
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        toast({ title: 'Razorpay SDK failed to load', description: 'Are you connected to the internet?', variant: 'destructive' });
+        setPayingBookingId(null);
+        return;
+      }
+
+      const pb = (b as any).priceBreakdown;
+      const sub = pb?.subtotal || parseInt(String(b.price).replace(/\D/g, '')) || 500;
+      const mat = (b as any).materialsTotal || 0;
+      const amountToPay = pb?.grandTotal || (sub + mat);
+
+      const order = await api.payments.createOrder(amountToPay);
+
+      if (order.mock) {
+        setTimeout(async () => {
+          try {
+            await api.bookings.pay(b.id, { advanceTransactionId: order.id });
+            toast({ title: 'Payment Successful', description: `Paid ₹${amountToPay} online to ServiceHub website.` });
+            await refreshBookings();
+          } catch (err: any) {
+            toast({ title: 'Payment failed', description: err.message, variant: 'destructive' });
+          } finally {
+            setPayingBookingId(null);
+          }
+        }, 1200);
+        return;
+      }
+
+      const options = {
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'ServiceHub',
+        description: `Online Service Payment for Booking #${b.trackingId}`,
+        order_id: order.id,
+        handler: async (response: any) => {
+          try {
+            await api.bookings.pay(b.id, {
+              razorpayOrderId: order.id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature
+            });
+            toast({ title: 'Payment Successful', description: `Paid ₹${amountToPay} online to ServiceHub website.` });
+            await refreshBookings();
+          } catch (err: any) {
+            toast({ title: 'Payment verification failed', description: err.message, variant: 'destructive' });
+          } finally {
+            setPayingBookingId(null);
+          }
+        },
+        prefill: { name: user?.name || '', email: user?.email || '', contact: user?.phone || '' },
+        theme: { color: '#6366f1' }
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.on('payment.failed', (resp: any) => {
+        toast({ title: 'Payment Failed', description: resp.error?.description || 'Declined', variant: 'destructive' });
+        setPayingBookingId(null);
+      });
+      rzp.open();
+    } catch (err: any) {
+      toast({ title: 'Payment initiation failed', description: err.message, variant: 'destructive' });
+      setPayingBookingId(null);
+    }
+  };
+
   const handleMarkAsPaid = async (bookingId: string) => {
     try {
       await api.bookings.pay(bookingId);
@@ -388,47 +474,42 @@ export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
                 {b.status === 'Completed' && (
                   <div className="mt-3 p-4 bg-success/5 border border-success/15 rounded-xl space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold uppercase text-success tracking-wider">Service Completed Payment</span>
+                      <span className="text-xs font-semibold uppercase text-success tracking-wider">Service Completed — Payment Due</span>
                       {(b as any).paymentStatus === 'Paid' ? (
-                        <span className="text-xs font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/20">✓ PAID</span>
+                        <span className="text-xs font-bold text-success bg-success/10 px-2.5 py-1 rounded-full border border-success/20">✓ PAID ONLINE</span>
                       ) : (
-                        <span className="text-xs font-bold text-destructive bg-destructive/10 px-2.5 py-1 rounded-full border border-destructive/20">⌛ UNPAID</span>
+                        <span className="text-xs font-bold text-destructive bg-destructive/10 px-2.5 py-1 rounded-full border border-destructive/20 animate-pulse">⌛ UNPAID</span>
                       )}
                     </div>
                     
                     {(b as any).paymentStatus !== 'Paid' ? (
-                      activeUpi ? (
-                        <div className="flex flex-col sm:flex-row items-center gap-4 bg-card p-3 rounded-lg border border-border">
-                          <img 
-                            src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=upi%3A%2F%2Fpay%3Fpa%3D${encodeURIComponent(activeUpi)}%26pn%3D${encodeURIComponent(b.providerName)}%26am%3D${b.price.replace(/\D/g, '')}%26cu%3DINR`} 
-                            alt="Provider QR Code" 
-                            className="w-28 h-28 border border-border rounded-md bg-white p-1"
-                          />
-                          <div className="text-center sm:text-left space-y-1.5 flex-1">
-                            <p className="text-xs text-muted-foreground">Scan QR code using GPay, PhonePe, Paytm, or any UPI App to pay provider directly.</p>
-                            <div className="text-xs">
-                              <span className="font-semibold text-foreground">UPI ID:</span> <code className="bg-muted px-1.5 py-0.5 rounded text-primary">{activeUpi}</code>
-                            </div>
-                            <button 
-                              onClick={() => handleMarkAsPaid(b.id)}
-                              className="mt-2 w-full sm:w-auto px-4 py-2 bg-success text-success-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1.5 animate-pulse"
-                            >
-                              💳 Mark as Paid
-                            </button>
+                      <div className="p-4 bg-card border border-border rounded-xl space-y-3 shadow-sm">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="font-bold text-foreground text-sm block">Complete Service Payment</span>
+                            <span className="text-xs text-muted-foreground">Work completed by {b.providerName}. Pay online via Razorpay to website.</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-base font-extrabold text-primary block">
+                              ₹{((b as any).priceBreakdown?.grandTotal || (((b as any).priceBreakdown?.subtotal || (parseInt(b.price.replace(/\D/g, '')) || 500)) + (b.materialsTotal || 0))).toLocaleString('en-IN')}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground uppercase font-semibold">Total Payable</span>
                           </div>
                         </div>
-                      ) : (
-                        <div className="p-3 bg-warning/5 border border-warning/20 rounded-lg text-center space-y-2">
-                          <p className="text-xs text-warning font-semibold">⚠️ Provider has not configured their UPI ID yet.</p>
-                          <p className="text-[10px] text-muted-foreground">Please ask the provider to set their UPI ID in their profile tab or confirm offline payment manually.</p>
-                          <button 
-                            onClick={() => handleMarkAsPaid(b.id)}
-                            className="mx-auto px-4 py-1.5 bg-success text-success-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-1"
-                          >
-                            Mark as Paid Manually
-                          </button>
-                        </div>
-                      )
+
+                        <button
+                          type="button"
+                          disabled={payingBookingId === b.id}
+                          onClick={() => handleRazorpayPayBooking(b)}
+                          className="w-full gradient-primary text-primary-foreground py-2.5 rounded-lg font-bold hover:opacity-90 transition-all flex items-center justify-center gap-2 active:scale-95 shadow-md"
+                        >
+                          {payingBookingId === b.id ? (
+                            <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            '💳 Pay Online via Razorpay'
+                          )}
+                        </button>
+                      </div>
                     ) : (
                       <div className="space-y-3 pt-2 border-t border-success/15">
                         <p className="text-xs text-muted-foreground font-semibold">Payment has been confirmed. Thank you!</p>
