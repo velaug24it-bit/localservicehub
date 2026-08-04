@@ -62,6 +62,7 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog' | 'marketplace'>('providers');
   const [paymentSubTab, setPaymentSubTab] = useState<'dailyPayouts' | 'transactions'>('dailyPayouts');
+  const [payoutModelFilter, setPayoutModelFilter] = useState<'all' | 'commission' | 'subscription'>('all');
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [dailyPayouts, setDailyPayouts] = useState<DailyPayoutRecord[]>([]);
@@ -360,87 +361,133 @@ export default function AdminDashboard() {
             </div>
 
             {/* Sub-tab 1: Daily Provider Payout Breakdown */}
-            {paymentSubTab === 'dailyPayouts' && (
-              <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-                <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-foreground">Daily Provider Payout Calculation</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Reflects exact Rupees collected by website, platform revenue percentage taken, and payout amount owed to each provider per day.
-                    </p>
+            {paymentSubTab === 'dailyPayouts' && (() => {
+              const filteredDailyPayouts = dailyPayouts.filter(rec => {
+                if (payoutModelFilter === 'commission') {
+                  return rec.revenueModel === 'commission' || !rec.subscriptionActive;
+                }
+                if (payoutModelFilter === 'subscription') {
+                  return rec.revenueModel === 'subscription' && rec.subscriptionActive;
+                }
+                return true;
+              });
+
+              return (
+                <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+                  <div className="px-6 py-4 border-b border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                      <h3 className="font-semibold text-foreground">Daily Provider Payout Calculation</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Reflects exact Rupees collected by website, platform revenue percentage taken, and payout amount owed to each provider per day.
+                      </p>
+                    </div>
+
+                    {/* Revenue Model Filter Buttons */}
+                    <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-lg text-xs font-semibold shrink-0">
+                      <button
+                        onClick={() => setPayoutModelFilter('all')}
+                        className={`px-3 py-1.5 rounded-md transition-all ${
+                          payoutModelFilter === 'all'
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        All ({dailyPayouts.length})
+                      </button>
+                      <button
+                        onClick={() => setPayoutModelFilter('commission')}
+                        className={`px-3 py-1.5 rounded-md transition-all ${
+                          payoutModelFilter === 'commission'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        📊 5% Commission ({dailyPayouts.filter(r => r.revenueModel === 'commission' || !r.subscriptionActive).length})
+                      </button>
+                      <button
+                        onClick={() => setPayoutModelFilter('subscription')}
+                        className={`px-3 py-1.5 rounded-md transition-all ${
+                          payoutModelFilter === 'subscription'
+                            ? 'bg-success text-success-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                      >
+                        ★ Subscription ({dailyPayouts.filter(r => r.revenueModel === 'subscription' && r.subscriptionActive).length})
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-muted/40 border-b border-border text-muted-foreground font-medium text-xs uppercase">
+                          <th className="px-6 py-3.5">Date</th>
+                          <th className="px-6 py-3.5">Provider &amp; Contact</th>
+                          <th className="px-6 py-3.5">Revenue Model</th>
+                          <th className="px-6 py-3.5">Total Paid to Website</th>
+                          <th className="px-6 py-3.5">Platform Revenue (Fee)</th>
+                          <th className="px-6 py-3.5">Net Owed to Provider</th>
+                          <th className="px-6 py-3.5 text-right">Payout Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {filteredDailyPayouts.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="px-6 py-10 text-center text-muted-foreground">No provider payout records matching selected filter.</td>
+                          </tr>
+                        ) : filteredDailyPayouts.map(rec => (
+                          <tr key={rec.key} className="hover:bg-muted/10 transition-colors">
+                            <td className="px-6 py-4">
+                              <div className="font-bold text-foreground">{rec.date}</div>
+                              <div className="text-[11px] text-muted-foreground">{rec.bookingCount} Booking{rec.bookingCount > 1 ? 's' : ''}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-semibold text-foreground">{rec.providerName}</div>
+                              <div className="text-xs text-muted-foreground">{rec.providerPhone || rec.providerEmail}</div>
+                              <div className="text-[11px] text-primary font-mono mt-0.5">UPI: {rec.providerUpiId || 'Not Configured'}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              {rec.revenueModel === 'subscription' && rec.subscriptionActive ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-success font-bold px-2 py-0.5 rounded-full bg-success/10 border border-success/20">
+                                  ★ Subscription (0% Fee)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] text-primary font-bold px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
+                                  📊 5% Commission
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 font-bold text-foreground">
+                              ₹{rec.totalCollectedByWebsite.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-6 py-4 font-bold text-info">
+                              ₹{rec.platformRevenue.toLocaleString('en-IN')}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="text-base font-extrabold text-success">
+                                ₹{rec.netPayoutOwed.toLocaleString('en-IN')}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">Amount to pay provider</div>
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <button
+                                onClick={() => handleToggleDailyPayout(rec)}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
+                                  rec.payoutStatus === 'Paid'
+                                    ? 'bg-success/15 text-success hover:bg-success/25 border border-success/30'
+                                    : 'bg-warning text-warning-foreground hover:opacity-90'
+                                }`}
+                              >
+                                {rec.payoutStatus === 'Paid' ? '✓ PAID TO PROVIDER' : 'PAY PROVIDER (MARK PAID)'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm border-collapse">
-                    <thead>
-                      <tr className="bg-muted/40 border-b border-border text-muted-foreground font-medium text-xs uppercase">
-                        <th className="px-6 py-3.5">Date</th>
-                        <th className="px-6 py-3.5">Provider &amp; Contact</th>
-                        <th className="px-6 py-3.5">Revenue Model</th>
-                        <th className="px-6 py-3.5">Total Paid to Website</th>
-                        <th className="px-6 py-3.5">Platform Revenue (Fee)</th>
-                        <th className="px-6 py-3.5">Net Owed to Provider</th>
-                        <th className="px-6 py-3.5 text-right">Payout Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
-                      {dailyPayouts.length === 0 ? (
-                        <tr>
-                          <td colSpan={7} className="px-6 py-10 text-center text-muted-foreground">No provider payout records for any date yet.</td>
-                        </tr>
-                      ) : dailyPayouts.map(rec => (
-                        <tr key={rec.key} className="hover:bg-muted/10 transition-colors">
-                          <td className="px-6 py-4">
-                            <div className="font-bold text-foreground">{rec.date}</div>
-                            <div className="text-[11px] text-muted-foreground">{rec.bookingCount} Booking{rec.bookingCount > 1 ? 's' : ''}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="font-semibold text-foreground">{rec.providerName}</div>
-                            <div className="text-xs text-muted-foreground">{rec.providerPhone || rec.providerEmail}</div>
-                            <div className="text-[11px] text-primary font-mono mt-0.5">UPI: {rec.providerUpiId || 'Not Configured'}</div>
-                          </td>
-                          <td className="px-6 py-4">
-                            {rec.revenueModel === 'subscription' && rec.subscriptionActive ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-success font-bold px-2 py-0.5 rounded-full bg-success/10 border border-success/20">
-                                ★ Subscription (0% Fee)
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-primary font-bold px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20">
-                                📊 5% Commission
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-foreground">
-                            ₹{rec.totalCollectedByWebsite.toLocaleString('en-IN')}
-                          </td>
-                          <td className="px-6 py-4 font-bold text-info">
-                            ₹{rec.platformRevenue.toLocaleString('en-IN')}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="text-base font-extrabold text-success">
-                              ₹{rec.netPayoutOwed.toLocaleString('en-IN')}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground">Amount to pay provider</div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <button
-                              onClick={() => handleToggleDailyPayout(rec)}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
-                                rec.payoutStatus === 'Paid'
-                                  ? 'bg-success/15 text-success hover:bg-success/25 border border-success/30'
-                                  : 'bg-warning text-warning-foreground hover:opacity-90'
-                              }`}
-                            >
-                              {rec.payoutStatus === 'Paid' ? '✓ PAID TO PROVIDER' : 'PAY PROVIDER (MARK PAID)'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Sub-tab 2: Detailed Customer Transactions */}
             {paymentSubTab === 'transactions' && (

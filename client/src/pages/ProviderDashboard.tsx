@@ -780,103 +780,148 @@ const ProviderDashboard = () => {
 
         {/* Subscription Tab */}
         {activeTab === 'subscription' && (
-          billingLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 space-y-3">
-              <span className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-              <span className="text-xs text-muted-foreground font-medium animate-pulse">Checking activation status...</span>
-            </div>
-          ) : billing ? (
-            <div className="max-w-2xl mx-auto space-y-6">
-              <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-                <div className="gradient-primary p-6 text-primary-foreground">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xl font-display font-bold">Subscription & Activation</h3>
-                      <p className="text-sm text-primary-foreground/75">Manage your monthly profile activation status.</p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                      billing.isActive 
-                        ? 'bg-success text-success-foreground' 
-                        : 'bg-destructive text-destructive-foreground animate-pulse'
-                    }`}>
-                      {billing.isActive ? 'Active' : 'Inactive'}
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Header Card */}
+            <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+              <div className="gradient-primary p-6 text-primary-foreground">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-display font-bold">Platform Revenue & Subscription Management</h3>
+                    <p className="text-sm text-primary-foreground/75">Select how platform fee commission is calculated for your service bookings.</p>
+                  </div>
+                  {isSubscriptionPlan ? (
+                    <span className="px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-success text-success-foreground shadow-sm">
+                      ★ Active Subscriber (0% Fee)
                     </span>
+                  ) : (
+                    <span className="px-3.5 py-1.5 rounded-full text-xs font-extrabold bg-warning text-warning-foreground shadow-sm">
+                      📊 5% Commission Model (Active)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Revenue Plan Selection Cards */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Card 1: 5% Per-Work Commission */}
+                  <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+                    !isSubscriptionPlan 
+                      ? 'border-primary bg-primary/5 shadow-md ring-2 ring-primary/20' 
+                      : 'border-border bg-card hover:bg-muted/40'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground text-lg">5% Per-Work Commission</span>
+                        {!isSubscriptionPlan && (
+                          <span className="text-xs bg-primary/10 text-primary font-extrabold px-2.5 py-0.5 rounded-full border border-primary/20">
+                            Active Model
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Pay a standard <strong>5% platform fee</strong> on each completed booking. No upfront monthly cost. Pay only when you earn.
+                      </p>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-border/60">
+                      {isSubscriptionPlan ? (
+                        <button
+                          type="button"
+                          onClick={handleSwitchToCommission}
+                          className="w-full py-2.5 rounded-xl border border-border text-foreground font-semibold text-xs hover:bg-muted transition-colors"
+                        >
+                          Switch to 5% Commission Model
+                        </button>
+                      ) : (
+                        <div className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                          ✓ Currently active for all your completed jobs
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card 2: Monthly Subscription Plan (₹499) */}
+                  <div className={`p-5 rounded-2xl border-2 transition-all flex flex-col justify-between ${
+                    isSubscriptionPlan 
+                      ? 'border-success bg-success/5 shadow-md ring-2 ring-success/20' 
+                      : 'border-border bg-card hover:bg-muted/40'
+                  }`}>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-foreground text-lg">Monthly Subscription Plan</span>
+                        {isSubscriptionPlan && (
+                          <span className="text-xs bg-success/15 text-success font-extrabold px-2.5 py-0.5 rounded-full border border-success/30">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Subscribe for <strong>₹499/month</strong> via Razorpay. Keep <strong>100% of your earnings</strong> (0% commission deducted per job).
+                      </p>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-border/60 space-y-3">
+                      <button
+                        type="button"
+                        disabled={subSubmitting}
+                        onClick={handleSubscribePlan499}
+                        className="w-full gradient-primary text-primary-foreground py-3 rounded-xl font-bold text-xs hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                      >
+                        {subSubmitting ? (
+                          <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                        ) : isSubscriptionPlan ? (
+                          '💳 Renew Subscription for ₹499 (30 Days)'
+                        ) : (
+                          '💳 Subscribe Now for ₹499/Month'
+                        )}
+                      </button>
+
+                      {/* Subscription Dates and Days Remaining below */}
+                      {isSubscriptionPlan && (
+                        <div className="p-3 bg-card border border-border rounded-xl text-xs space-y-1.5">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Subscription Period:</span>
+                            <span className="font-bold text-foreground">
+                              {subStartAt?.toLocaleDateString() || 'Active'} – {subExpiresAt?.toLocaleDateString() || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center pt-1 border-t border-dashed border-border">
+                            <span className="text-muted-foreground">Days Remaining:</span>
+                            <span className={`font-extrabold px-2 py-0.5 rounded text-[11px] ${
+                              isSubExpiringSoon ? 'bg-warning/15 text-warning animate-pulse' : 'bg-success/10 text-success'
+                            }`}>
+                              {subDaysRemaining} days
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <div className="p-6 space-y-6">
-                  {/* Billing details grid */}
-                  <div className="grid grid-cols-2 gap-4 bg-muted/40 p-4 rounded-xl text-sm border border-border">
-                    <div>
-                      <span className="text-muted-foreground block">Last Activated:</span>
-                      <span className="font-semibold text-foreground">{new Date(billing.lastActivationDate).toLocaleDateString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block">Active Cycle Ends:</span>
-                      <span className="font-semibold text-foreground">
-                        {new Date(new Date(billing.lastActivationDate).getTime() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString()}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block">Earnings this cycle:</span>
-                      <span className="font-semibold text-foreground">₹{billing.earnings}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block">Days remaining:</span>
-                      <span className="font-semibold text-foreground">{billing.daysRemaining} days</span>
-                    </div>
+                {/* Expiration Warning Notice */}
+                {isSubExpiringSoon && (
+                  <div className="p-4 bg-warning/10 border border-warning/30 rounded-xl space-y-2 text-xs">
+                    <span className="font-bold text-warning uppercase tracking-wider block">⚠️ Ending Subscription Alert</span>
+                    <p className="text-muted-foreground leading-relaxed">
+                      Your subscription will end in <strong>{subDaysRemaining} day(s)</strong> on <strong>{subExpiresAt?.toLocaleDateString()}</strong>. If you do not renew, your account will automatically revert to the <strong>5% Per-Work Commission</strong> model.
+                    </p>
                   </div>
+                )}
 
-                  {/* Info summary */}
-                  <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 space-y-2 text-xs">
-                    <div className="flex items-center gap-1.5 font-bold text-primary">
-                      <Award className="w-4 h-4" /> Commission & Activation Terms
-                    </div>
-                    <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
-                      <li>Provider profiles are active for <strong>30 days</strong>.</li>
-                      <li>If you earned <strong>less than ₹2,000</strong> this cycle (or had no jobs), renewal is completely <strong>FREE</strong>.</li>
-                      <li>If your completed earnings were <strong>₹2,000 or more</strong>, a <strong>10% commission fee</strong> is required to renew.</li>
-                      <li>While inactive, your profile is hidden from all client search directories and AI matching lists.</li>
-                    </ul>
-                  </div>
-
-                  {/* Reactivation Action */}
-                  <div className="pt-2 text-center space-y-3">
-                    <div className="flex items-center justify-between border-t border-border pt-4">
-                      <span className="text-sm text-muted-foreground font-medium">Reactivation Fee Due:</span>
-                      <span className="text-xl font-bold text-foreground">
-                        {billing.amountDue > 0 ? `₹${billing.amountDue} (10% of ₹${billing.earnings})` : '₹0.00 (Free)'}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={handleReactivate}
-                      disabled={billingLoading}
-                      className="w-full gradient-primary text-primary-foreground py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2 text-sm shadow-sm"
-                    >
-                      {billingLoading ? (
-                        <span className="w-5 h-5 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
-                      ) : billing.amountDue > 0 ? (
-                        <>Pay ₹{billing.amountDue} & Reactivate</>
-                      ) : (
-                        <>Reactivate Account (Free)</>
-                      )}
-                    </button>
-                  </div>
+                {/* Terms Summary */}
+                <div className="bg-muted/40 p-4 rounded-xl border border-border text-xs space-y-2">
+                  <div className="font-bold text-foreground">ℹ️ Revenue Model Guidelines:</div>
+                  <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                    <li>Subscriptions run for <strong>30 consecutive days</strong> from payment date.</li>
+                    <li>Subscribers pay <strong>₹0 commission</strong> per job for all completed services.</li>
+                    <li>If a subscription expires, your profile automatically falls back to <strong>5% commission per job</strong> without hiding your listing.</li>
+                  </ul>
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="text-center py-20 space-y-3 border border-dashed border-border rounded-xl">
-              <p className="text-muted-foreground text-sm">Failed to retrieve activation details.</p>
-              <button 
-                onClick={fetchBillingStatus}
-                className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
-              >
-                Retry
-              </button>
-            </div>
-          )
+          </div>
         )}
       </div>
     </div>
