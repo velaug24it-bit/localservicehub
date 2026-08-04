@@ -174,7 +174,7 @@ const downloadInvoiceFile = (invoiceType: 'provider' | 'material' | 'servicehub'
 };
 
 export default function MyBookingsModal({ onClose }: MyBookingsModalProps) {
-  const { bookings, cancelBooking, refreshBookings } = useAuth();
+  const { user, bookings, cancelBooking, refreshBookings } = useAuth();
   const [trackingBooking, setTrackingBooking] = useState<Booking | null>(null);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
   const [contactProvider, setContactProvider] = useState<Provider | null>(null);
@@ -462,13 +462,6 @@ const loadRazorpayScript = () => {
                         📦 Materials Bill
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => downloadInvoiceFile('servicehub', b)}
-                      className="px-2.5 py-1 text-[11px] font-semibold border border-border rounded-lg bg-card hover:bg-muted text-foreground transition-all"
-                    >
-                      🏦 ServiceHub Fee
-                    </button>
                   </div>
                 </div>
                 {b.status === 'Completed' && (
