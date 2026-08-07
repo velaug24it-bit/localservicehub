@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="shGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366f1" />
+      <stop offset="50%" stop-color="#7c3aed" />
+      <stop offset="100%" stop-color="#4f46e5" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#4f46e5" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <!-- Background Icon Badge -->
+  <rect width="128" height="128" rx="32" fill="url(#shGrad)" />
+  <!-- Inner Subtle Ring -->
+  <rect x="6" y="6" width="116" height="116" rx="26" fill="none" stroke="#ffffff" stroke-width="2" stroke-opacity="0.25" />
+  <!-- Stylized Bold "S" Logo Mark -->
+  <text x="64" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif" font-weight="900" font-size="76" fill="#ffffff" text-anchor="middle" filter="url(#shadow)">S</text>
+  <!-- Small Active Accent Dot -->
+  <circle cx="98" cy="30" r="7" fill="#10b981" />
+</svg>
