@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Provider } from '@/data/providers';
 import { Booking, useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -83,6 +83,17 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
   const [shopId, setShopId] = useState<string | null>(null);
   const [deliveryMethod, setDeliveryMethod] = useState<'Pickup' | 'Delivery'>('Pickup');
   const [materialsTotal, setMaterialsTotal] = useState<number>(0);
+  const [isEmergency, setIsEmergency] = useState<boolean>(false);
+  const [useWallet, setUseWallet] = useState<boolean>(false);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
+  useEffect(() => {
+    if (user) {
+      api.customerRetention.getWallet().then(w => {
+        setWalletBalance(w?.balance || 0);
+      }).catch(() => {});
+    }
+  }, [user]);
 
   // Internal materials choice state — separate from the marketplace's own tracking
   // null = not yet chosen, false = has own materials, true = needs marketplace
@@ -105,9 +116,10 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
     : serviceType;
 
   const labourSubtotal = priceBreakdown?.subtotal || 0;
-  // Customer pays 100% of service charge + materials upfront to website gateway.
-  const PLATFORM_FEE = 0;
-  const paymentAmount = labourSubtotal + (materialsRequired ? materialsTotal : 0);
+  const emergencySurcharge = isEmergency ? 150 : 0;
+  const subtotalBeforeWallet = labourSubtotal + (materialsRequired ? materialsTotal : 0) + emergencySurcharge;
+  const walletDiscount = useWallet ? Math.min(walletBalance, subtotalBeforeWallet) : 0;
+  const paymentAmount = Math.max(0, subtotalBeforeWallet - walletDiscount);
   const fullOrderTotal = paymentAmount;
 
   // ── Step 1 Validation ──────────────────────────────────────────────
@@ -554,6 +566,44 @@ export default function BookingModal({ provider, onClose, onConfirm }: BookingMo
                       <span>₹{materialsTotal.toLocaleString('en-IN')}</span>
                     </div>
                     <div className="text-[10px] text-muted-foreground">💳 You pay for materials now; Provider collects from shop on your behalf</div>
+                  </div>
+                )}
+
+                {/* Section 3: Emergency Dispatch Option */}
+                <div className="p-3.5 bg-rose-500/5 border-t border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="emergency-toggle"
+                      checked={isEmergency}
+                      onChange={e => setIsEmergency(e.target.checked)}
+                      className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 cursor-pointer"
+                    />
+                    <label htmlFor="emergency-toggle" className="cursor-pointer">
+                      <span className="text-xs font-bold text-rose-600 dark:text-rose-400 block">🚨 Emergency 30-Min Rapid Dispatch</span>
+                      <span className="text-[10px] text-muted-foreground">Priority specialist routing (+ ₹150 surcharge + 180-day double warranty)</span>
+                    </label>
+                  </div>
+                  {isEmergency && <span className="text-xs font-extrabold text-rose-600">+₹150</span>}
+                </div>
+
+                {/* Section 4: Customer Wallet Credits */}
+                {walletBalance > 0 && (
+                  <div className="p-3.5 bg-emerald-500/5 border-t border-border flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="wallet-toggle"
+                        checked={useWallet}
+                        onChange={e => setUseWallet(e.target.checked)}
+                        className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <label htmlFor="wallet-toggle" className="cursor-pointer">
+                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 block">💳 Apply Customer Wallet Credits</span>
+                        <span className="text-[10px] text-muted-foreground">Available balance: ₹{walletBalance} (cashback & rewards)</span>
+                      </label>
+                    </div>
+                    {useWallet && <span className="text-xs font-extrabold text-emerald-600">-₹{walletDiscount}</span>}
                   </div>
                 )}
 

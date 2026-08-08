@@ -3,6 +3,7 @@ import { trackingSteps } from '@/data/providers';
 import { useState, useEffect } from 'react';
 import LiveGPSTrackingModal from './LiveGPSTrackingModal';
 import ContactModal from './ContactModal';
+import BookingChatModal from './chat/BookingChatModal';
 import { providers, Provider } from '@/data/providers';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
@@ -254,6 +255,7 @@ const loadRazorpayScript = () => {
 };
 
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
+  const [activeChatBooking, setActiveChatBooking] = useState<Booking | null>(null);
 
   const handleRazorpayPayBooking = async (b: Booking) => {
     setPayingBookingId(b.id);
@@ -368,6 +370,14 @@ const loadRazorpayScript = () => {
 
   if (trackingBooking) {
     return <LiveGPSTrackingModal booking={trackingBooking} onClose={() => setTrackingBooking(null)} />;
+  }
+  if (activeChatBooking) {
+    return (
+      <BookingChatModal
+        bookingId={activeChatBooking.id || activeChatBooking.trackingId}
+        onClose={() => setActiveChatBooking(null)}
+      />
+    );
   }
   if (contactBooking && contactProvider) {
     return <ContactModal provider={contactProvider} booking={contactBooking} onClose={() => { setContactBooking(null); setContactProvider(null); }} />;
@@ -548,17 +558,29 @@ const loadRazorpayScript = () => {
                     )}
                   </div>
                 )}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
+                  <button 
+                    onClick={() => setActiveChatBooking(b)} 
+                    className="px-3.5 py-1.5 rounded-xl gradient-primary text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-all flex items-center gap-1.5 active:scale-95"
+                  >
+                    <span>💬 Chat with Provider</span>
+                  </button>
+
+                  <a 
+                    href="tel:+919840994649"
+                    className="px-3 py-1.5 rounded-xl bg-muted border border-border text-foreground text-xs font-semibold hover:bg-muted/80 transition-colors flex items-center gap-1"
+                    title="ServiceHub Support: 9840994649"
+                  >
+                    <span>📞 Support: 9840994649</span>
+                  </a>
+
                   {b.status !== 'Cancelled' && b.status !== 'Completed' && (
                     <>
-                      <button onClick={() => setTrackingBooking(b)} className="px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors">
+                      <button onClick={() => setTrackingBooking(b)} className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors">
                         📋 Track Service
                       </button>
-                      <button onClick={() => openContact(b)} className="px-3 py-1.5 rounded-lg bg-info/10 text-info text-xs font-medium hover:bg-info/20 transition-colors">
-                        💬 Contact
-                      </button>
                       <button onClick={async () => { await cancelBooking(b.id); toast({ title: 'Booking cancelled' }); }}
-                        className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs font-medium hover:bg-destructive/20 transition-colors">
+                        className="px-3 py-1.5 rounded-xl bg-destructive/10 text-destructive text-xs font-semibold hover:bg-destructive/20 transition-colors">
                         ✕ Cancel
                       </button>
                     </>

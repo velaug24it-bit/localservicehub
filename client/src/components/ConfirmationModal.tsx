@@ -1,4 +1,7 @@
+import { useState } from 'react';
 import { Booking } from '@/contexts/AuthContext';
+import { MessageSquare, Phone, ShieldCheck } from 'lucide-react';
+import BookingChatModal from './chat/BookingChatModal';
 
 interface ConfirmationModalProps {
   booking: Booking;
@@ -7,9 +10,20 @@ interface ConfirmationModalProps {
 }
 
 export default function ConfirmationModal({ booking, onClose, onViewBookings }: ConfirmationModalProps) {
+  const [openChat, setOpenChat] = useState(false);
+
   const copyId = () => {
     navigator.clipboard.writeText(booking.trackingId);
   };
+
+  if (openChat) {
+    return (
+      <BookingChatModal
+        bookingId={booking.id || booking.trackingId}
+        onClose={() => setOpenChat(false)}
+      />
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 backdrop-blur-sm" onClick={onClose}>
@@ -26,43 +40,69 @@ export default function ConfirmationModal({ booking, onClose, onViewBookings }: 
           ))}
         </div>
 
-        <div className="p-6 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-success/10 flex items-center justify-center animate-bounce-in">
+        <div className="p-6 text-center space-y-4">
+          <div className="w-16 h-16 mx-auto rounded-full bg-success/10 flex items-center justify-center animate-bounce-in">
             <span className="text-3xl">✅</span>
           </div>
-          <h3 className="text-xl font-display font-bold text-foreground mb-1">Booking Confirmed!</h3>
-          <p className="text-sm text-muted-foreground mb-4">Your service has been booked successfully.</p>
+          <div>
+            <h3 className="text-xl font-display font-bold text-foreground">Booking Confirmed!</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">Your service appointment has been scheduled.</p>
+          </div>
 
-          <div className="bg-muted rounded-xl p-4 mb-4 text-left">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-lg">
+          <div className="bg-muted/50 border border-border rounded-2xl p-4 text-left space-y-2">
+            <div className="flex items-center gap-3 pb-2 border-b border-border">
+              <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-lg text-primary-foreground font-bold">
                 {booking.providerName.charAt(0)}
               </div>
               <div>
-                <div className="font-semibold text-foreground text-sm">{booking.providerName}</div>
-                <div className="text-xs text-muted-foreground">{booking.serviceType}</div>
+                <div className="font-bold text-foreground text-sm">{booking.providerName}</div>
+                <div className="text-xs text-primary font-medium">{booking.serviceType}</div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 text-sm">
-              <div><span className="text-muted-foreground">Date:</span> <span className="text-foreground font-medium">{booking.date}</span></div>
-              <div><span className="text-muted-foreground">Time:</span> <span className="text-foreground font-medium">{booking.time}</span></div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div><span className="text-muted-foreground">Date:</span> <strong className="text-foreground">{booking.date}</strong></div>
+              <div><span className="text-muted-foreground">Time:</span> <strong className="text-foreground">{booking.time}</strong></div>
             </div>
           </div>
 
-          <div className="bg-accent rounded-xl p-4 mb-4">
-            <div className="text-xs text-muted-foreground mb-1 uppercase tracking-wider">Tracking ID</div>
-            <div className="text-xl font-display font-bold gradient-text">{booking.trackingId}</div>
-            <button onClick={copyId} className="mt-2 text-xs text-primary hover:underline">📋 Copy ID</button>
-            <p className="text-xs text-muted-foreground mt-1">Save this to track your service</p>
+          <div className="bg-primary/5 border border-primary/20 rounded-2xl p-3.5 flex items-center justify-between">
+            <div className="text-left">
+              <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Booking Tracking ID</div>
+              <div className="text-base font-display font-extrabold text-primary">{booking.trackingId}</div>
+            </div>
+            <button onClick={copyId} className="px-3 py-1.5 bg-card border border-border text-foreground text-xs font-semibold rounded-xl hover:bg-muted transition-colors">
+              📋 Copy ID
+            </button>
           </div>
 
-          <div className="flex gap-3">
-            <button onClick={() => { copyId(); }} className="flex-1 py-2.5 rounded-lg border border-border text-foreground font-medium hover:bg-muted transition-colors text-sm">
-              Copy ID
+          {/* Action Buttons: Chat with Provider & ServiceHub Support */}
+          <div className="space-y-2 pt-1">
+            <button 
+              type="button"
+              onClick={() => setOpenChat(true)}
+              className="w-full py-3 gradient-primary text-primary-foreground font-bold rounded-xl text-xs shadow-md hover:opacity-90 transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              <MessageSquare className="w-4 h-4" />
+              <span>💬 Chat with {booking.providerName}</span>
             </button>
-            <button onClick={onViewBookings} className="flex-1 gradient-primary text-primary-foreground py-2.5 rounded-lg font-semibold hover:opacity-90 transition-all text-sm">
-              View Bookings
-            </button>
+
+            <div className="flex gap-2">
+              <a
+                href="tel:+919840994649"
+                className="flex-1 py-2.5 rounded-xl border border-border bg-card text-foreground hover:bg-muted text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                title="ServiceHub Support"
+              >
+                <Phone className="w-3.5 h-3.5 text-success" />
+                <span>Support: 9840994649</span>
+              </a>
+
+              <button 
+                onClick={onViewBookings} 
+                className="flex-1 py-2.5 rounded-xl bg-muted border border-border text-foreground font-semibold hover:bg-muted/80 transition-all text-xs"
+              >
+                View Bookings
+              </button>
+            </div>
           </div>
         </div>
       </div>

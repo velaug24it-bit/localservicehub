@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
-import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle } from 'lucide-react';
+import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle, History, Eye } from 'lucide-react';
 import AdminServiceCatalogTab from '@/components/admin/AdminServiceCatalogTab';
 import AdminMarketplaceTab from '@/components/admin/AdminMarketplaceTab';
+import AdminRetentionTab from '@/components/admin/AdminRetentionTab';
+import ProviderActivityHistoryModal from '@/components/admin/ProviderActivityHistoryModal';
 import Footer from '@/components/Footer';
 
 interface ProviderProfile {
@@ -61,12 +63,13 @@ interface DailyPayoutRecord {
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog' | 'marketplace'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog' | 'marketplace' | 'retention'>('providers');
   const [paymentSubTab, setPaymentSubTab] = useState<'dailyPayouts' | 'transactions'>('dailyPayouts');
   const [payoutModelFilter, setPayoutModelFilter] = useState<'all' | 'commission' | 'subscription'>('all');
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [dailyPayouts, setDailyPayouts] = useState<DailyPayoutRecord[]>([]);
+  const [selectedProviderHistoryId, setSelectedProviderHistoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -243,6 +246,7 @@ export default function AdminDashboard() {
             { key: 'payments', label: '💰 Daily Payouts & Ledger', badge: 0 },
             { key: 'catalog', label: '📋 Service Catalog', badge: 0 },
             { key: 'marketplace', label: '🏪 Materials Marketplace', badge: 0 },
+            { key: 'retention', label: '🛡️ Retention & Rules', badge: 0 },
           ] as const).map(tab => (
             <button
               key={tab.key}
@@ -315,16 +319,27 @@ export default function AdminDashboard() {
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleToggleApproval(p.id, p.approved)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                            p.approved
-                              ? 'bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/20'
-                              : 'bg-success text-success-foreground hover:opacity-90 shadow-sm'
-                          }`}
-                        >
-                          {p.approved ? 'Revoke' : 'Approve'}
-                        </button>
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setSelectedProviderHistoryId(p.id)}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-primary/10 hover:bg-primary/20 text-primary border border-primary/20 transition-all flex items-center gap-1.5 shadow-sm active:scale-95 whitespace-nowrap"
+                            title="View Complete Activity, Completed Work & Wallet History"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Activity &amp; History</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleToggleApproval(p.id, p.approved)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                              p.approved
+                                ? 'bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/20'
+                                : 'bg-success text-success-foreground hover:opacity-90 shadow-sm'
+                            }`}
+                          >
+                            {p.approved ? 'Revoke' : 'Approve'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -588,6 +603,27 @@ export default function AdminDashboard() {
               <AdminMarketplaceTab />
             </div>
           </div>
+        )}
+
+        {/* ── RETENTION & RULES TAB ── */}
+        {activeTab === 'retention' && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-border">
+              <h3 className="font-semibold text-foreground">Customer & Provider Retention Management</h3>
+              <p className="text-xs text-muted-foreground">Manage warranty claims, loyalty reward rules, emergency dispatch surcharges, and provider wallet payouts.</p>
+            </div>
+            <div className="p-6">
+              <AdminRetentionTab />
+            </div>
+          </div>
+        )}
+
+        {/* Provider Complete Activity & History Modal */}
+        {selectedProviderHistoryId && (
+          <ProviderActivityHistoryModal
+            providerId={selectedProviderHistoryId}
+            onClose={() => setSelectedProviderHistoryId(null)}
+          />
         )}
       </main>
       <Footer />

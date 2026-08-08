@@ -7,8 +7,10 @@ import BookingModal from '@/components/BookingModal';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import MyBookingsModal from '@/components/MyBookingsModal';
 import ContactModal from '@/components/ContactModal';
+import BookingChatModal from '@/components/chat/BookingChatModal';
 import AIDiagnosisModal from '@/components/AIDiagnosisModal';
 import NotificationBell from '@/components/NotificationBell';
+import CustomerRetentionModal from '@/components/CustomerRetentionModal';
 import ProviderReviewsModal from '@/components/ProviderReviewsModal';
 import ReviewsSection from '@/components/sections/ReviewsSection';
 import ContactSection from '@/components/sections/ContactSection';
@@ -34,6 +36,9 @@ const Index = () => {
   const [contactProvider, setContactProvider] = useState<Provider | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAIDiagnosis, setShowAIDiagnosis] = useState(false);
+  const [showRetentionHub, setShowRetentionHub] = useState(false);
+  const [activeChatBookingId, setActiveChatBookingId] = useState<string | null>(null);
+  const [retentionTab, setRetentionTab] = useState<'warranties' | 'wallet' | 'rewards' | 'membership' | 'history' | 'emergency'>('warranties');
   const [reviewsProvider, setReviewsProvider] = useState<{ id: string; name: string } | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
@@ -151,6 +156,13 @@ const Index = () => {
             {user ? (
               <>
                 <NotificationBell />
+                <button
+                  onClick={() => { setRetentionTab('wallet'); setShowRetentionHub(true); }}
+                  className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-bold hover:bg-emerald-500/20 transition-all"
+                  title="View Customer Benefits, Warranties & Wallet"
+                >
+                  <span>🛡️ Wallet & Rewards</span>
+                </button>
                 <button onClick={() => setShowBookings(true)} className="px-4 py-2 rounded-lg bg-primary/10 text-primary text-sm font-medium hover:bg-primary/20 transition-colors">
                   My Bookings
                 </button>
@@ -168,15 +180,33 @@ const Index = () => {
                     <span className="text-sm font-medium text-foreground hidden sm:block">{user.name}</span>
                   </button>
                   {showUserMenu && (
-                    <div className="absolute right-0 top-full mt-2 w-52 bg-card rounded-xl shadow-card-hover border border-border py-2 animate-slide-up z-50">
+                    <div className="absolute right-0 top-full mt-2 w-56 bg-card rounded-xl shadow-card-hover border border-border py-2 animate-slide-up z-50">
                       <div className="px-4 py-2.5 border-b border-border">
                         <div className="text-sm font-semibold text-foreground truncate">{user.name}</div>
                         <div className="text-xs text-muted-foreground truncate">{user.email}</div>
                       </div>
                       <button
+                        onClick={() => { setRetentionTab('warranties'); setShowRetentionHub(true); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
+                      >
+                        🛡️ Active Warranties
+                      </button>
+                      <button
+                        onClick={() => { setRetentionTab('wallet'); setShowRetentionHub(true); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
+                      >
+                        💳 Wallet & Cashback
+                      </button>
+                      <button
+                        onClick={() => { setRetentionTab('membership'); setShowRetentionHub(true); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
+                      >
+                        ⭐ Membership Shield
+                      </button>
+                      <button
                         id="menu-my-bookings"
                         onClick={() => { setShowBookings(true); setShowUserMenu(false); }}
-                        className="w-full px-4 py-2.5 text-sm text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2"
+                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
                       >
                         📋 My Bookings
                       </button>
@@ -431,6 +461,23 @@ const Index = () => {
           onViewBookings={() => { setConfirmedBooking(null); setShowBookings(true); }} />
       )}
       {showBookings && <MyBookingsModal onClose={() => setShowBookings(false)} />}
+      {showRetentionHub && (
+        <CustomerRetentionModal
+          initialTab={retentionTab}
+          onClose={() => setShowRetentionHub(false)}
+          onRebook={(prov) => {
+            const match = allProviders.find(p => p.id === prov.providerId || p.name === prov.providerName);
+            if (match) setBookingProvider(match);
+            else if (allProviders.length > 0) setBookingProvider(allProviders[0]);
+          }}
+        />
+      )}
+      {activeChatBookingId && (
+        <BookingChatModal
+          bookingId={activeChatBookingId}
+          onClose={() => setActiveChatBookingId(null)}
+        />
+      )}
       {contactProvider && <ContactModal provider={contactProvider} onClose={() => setContactProvider(null)} />}
       {showAIDiagnosis && (
         <AIDiagnosisModal

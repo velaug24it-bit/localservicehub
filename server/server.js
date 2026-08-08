@@ -31,8 +31,18 @@ import Brand from './models/Brand.js';
 import PartnerShop from './models/PartnerShop.js';
 import Product from './models/Product.js';
 import ShopInventory from './models/ShopInventory.js';
-import MarketplaceOrder from './models/MarketplaceOrder.js';
 import Invoice from './models/Invoice.js';
+import CustomerWallet from './models/CustomerWallet.js';
+import RewardRule from './models/RewardRule.js';
+import CustomerMembership from './models/CustomerMembership.js';
+import Warranty from './models/Warranty.js';
+import ProviderWallet from './models/ProviderWallet.js';
+import ProviderLevel from './models/ProviderLevel.js';
+import TrainingCourse from './models/TrainingCourse.js';
+import ProviderCertificate from './models/ProviderCertificate.js';
+import ChatConversation from './models/ChatConversation.js';
+import ChatMessage from './models/ChatMessage.js';
+import MarketplaceOrder from './models/MarketplaceOrder.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,9 +57,228 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/servic
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
+// ── GLOBAL HELPER FUNCTIONS ──
+async function getOrCreateCustomerWallet(userId, userName = '') {
+  let wallet = await CustomerWallet.findOne({ userId });
+  if (!wallet) {
+    const refCode = `SH-${(userId || 'CUST').toString().slice(-5).toUpperCase()}`;
+    wallet = new CustomerWallet({
+      userId,
+      balance: 50,
+      cashbackBalance: 25,
+      promoCredits: 25,
+      rewardPoints: 50,
+      referralCode: refCode,
+      totalEarned: 50,
+      totalSpent: 0,
+      transactions: [
+        {
+          id: `WT-${Date.now()}`,
+          type: 'promo_credit',
+          amount: 50,
+          description: 'Welcome to ServiceHub! Initial promotional loyalty credits credited.',
+          date: new Date()
+        }
+      ]
+    });
+    await wallet.save();
+  }
+  return wallet;
+}
+
+async function getOrCreateCustomerMembership(userId, userName = '', userEmail = '') {
+  let membership = await CustomerMembership.findOne({ userId });
+  if (!membership) {
+    membership = new CustomerMembership({
+      userId,
+      customerName: userName,
+      customerEmail: userEmail,
+      planType: 'free',
+      planName: 'ServiceHub Free Shield',
+      discountPercent: 0,
+      warrantyDaysMultiplier: 1,
+      priorityBooking: false,
+      benefits: ['Standard 90-Day Digital Warranty', 'Verified Provider Network', 'Split Invoice Downloads']
+    });
+    await membership.save();
+  }
+  return membership;
+}
+
+async function getOrCreateProviderWallet(providerId, providerName = '', providerPhone = '') {
+  let pWallet = await ProviderWallet.findOne({ providerId });
+  if (!pWallet) {
+    pWallet = new ProviderWallet({
+      providerId,
+      providerName,
+      providerPhone,
+      availableBalance: 0,
+      pendingSettlement: 0,
+      totalWithdrawn: 0,
+      totalLifetimeEarnings: 0,
+      milestonePoints: 0,
+      milestoneCyclesCompleted: 0,
+      milestoneBonusEarned: 0,
+      topProviderRank: 0,
+      topProviderBonusEarned: 0,
+      referralBonusEarned: 0,
+      marketplaceCashbackEarned: 0,
+      performanceBonusEarned: 0,
+      transactions: [],
+      payoutRequests: []
+    });
+    await pWallet.save();
+  }
+
+  // ── CLEAN CALCULATION: STRICTLY FROM REAL JOB PAYMENTS & 100-POINT MILESTONES ──
+  try {
+    const completedBookings = await Booking.find({ 
+      $or: [
+        { providerId }, 
+        { providerId: providerId?.toString() },
+        ...(pWallet.providerName ? [{ providerName: pWallet.providerName }] : [])
+      ],
+      status: 'Completed' 
+    });
+
+    let totalCompletedWorkVolume = 0;
+    const milestoneJobLogs = [];
+
+    for (const b of completedBookings) {
+      const rawPrice = b.priceBreakdown?.subtotal || (typeof b.price === 'number' ? b.price : parseInt(String(b.price || 0).replace(/[^\d]/g, ''), 10)) || 0;
+      if (rawPrice > 0) {
+        totalCompletedWorkVolume += rawPrice;
+        const bId = b.trackingId || b.id || b._id.toString();
+        milestoneJobLogs.push({
+          bookingId: bId,
+          serviceType: b.serviceType,
+          amount: rawPrice,
+          pointsEarned: Math.floor(rawPrice / 100),
+          date: b.updatedAt || b.createdAt || new Date()
+        });
+      }
+    }
+
+    // Milestone Rule: Each ₹100 of completed work = 1 Milestone Point
+    const allTimeMilestonePoints = Math.floor(totalCompletedWorkVolume / 100);
+    // After collecting 100 points only -> grants ₹1,000 Milestone Cash Bonus
+    const cyclesCompleted = Math.floor(allTimeMilestonePoints / 100);
+    const currentPointsInCycle = allTimeMilestonePoints % 100; // 0 to 99 points
+    const totalMilestoneBonusEarned = cyclesCompleted * 1000;
+
+    const freshTransactions = [];
+
+    if (cyclesCompleted > 0) {
+      for (let c = 1; c <= cyclesCompleted; c++) {
+        freshTransactions.push({
+          id: `PWT-MILE-CYCLE-${c}`,
+          type: 'milestone_bonus',
+          amount: 1000,
+          description: `🎉 100 Milestone Points Completed (Cycle #${c})! ₹1,000 Cash Bonus Credited to Wallet.`,
+          status: 'Completed',
+          date: new Date()
+        });
+      }
+    }
+
+    // Top Provider Star Bonus (if awarded by Admin)
+    const topBonus = pWallet.topProviderBonusEarned || 0;
+    if (topBonus > 0) {
+      freshTransactions.unshift({
+        id: `PWT-TOP-${Date.now()}`,
+        type: 'performance_reward',
+        amount: topBonus,
+        description: `🏆 Top #${pWallet.topProviderRank || 1} Specialist Platform Performance Award`,
+        status: 'Completed',
+        date: new Date()
+      });
+    }
+
+    const withdrawn = pWallet.totalWithdrawn || 0;
+    const pending = pWallet.pendingSettlement || 0;
+
+    // Available balance is STRICTLY the ₹1,000 bonuses earned from reaching 100 points (plus admin top bonus) minus withdrawals
+    pWallet.availableBalance = Math.max(0, totalMilestoneBonusEarned + topBonus - withdrawn - pending);
+    pWallet.totalLifetimeEarnings = totalMilestoneBonusEarned + topBonus;
+    pWallet.milestonePoints = currentPointsInCycle;
+    pWallet.milestoneCyclesCompleted = cyclesCompleted;
+    pWallet.milestoneBonusEarned = totalMilestoneBonusEarned;
+    pWallet.transactions = freshTransactions;
+
+    await pWallet.save();
+  } catch (err) {
+    console.error('Provider wallet fresh calculation error:', err);
+  }
+
+  return pWallet;
+}
+
+async function getOrCreateProviderLevel(providerId) {
+  let pLevel = await ProviderLevel.findOne({ providerId });
+  if (!pLevel) {
+    pLevel = new ProviderLevel({
+      providerId,
+      tier: 'Silver',
+      trustScore: 96,
+      onTimePercentage: 98,
+      responseRatePercentage: 99,
+      completedJobsCount: 18,
+      repeatCustomersCount: 6,
+      rating: 4.9,
+      verifiedBadge: true,
+      experienceYears: '6+ Years',
+      leadPriorityMultiplier: 1.25,
+      commissionDiscountPercent: 1,
+      unlockedPerks: ['Verified Specialist Badge', 'Direct WhatsApp Contact', '1.25x Priority Leads', '1% Commission Discount']
+    });
+    await pLevel.save();
+  }
+  return pLevel;
+}
+
+async function createOrUpdateWarrantyForBooking(booking) {
+  try {
+    const existing = await Warranty.findOne({ bookingId: booking.id || booking._id });
+    if (existing) return existing;
+
+    const membership = await CustomerMembership.findOne({ userId: booking.userId });
+    let durationDays = 90;
+    if (membership && membership.planType === 'silver') durationDays = 120;
+    if (membership && membership.planType === 'gold') durationDays = 180;
+    if (membership && membership.planType === 'platinum') durationDays = 365;
+
+    const expiryDate = new Date();
+    expiryDate.setDate(expiryDate.getDate() + durationDays);
+
+    const wrnNumber = `SH-WRN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+    const warranty = new Warranty({
+      warrantyNumber: wrnNumber,
+      bookingId: booking.id || booking._id.toString(),
+      trackingId: booking.trackingId || `SH-${Date.now()}`,
+      userId: booking.userId,
+      customerName: booking.customerName || 'Valued Customer',
+      customerPhone: booking.phone || '',
+      providerId: booking.providerId || '',
+      providerName: booking.providerName || 'Certified Specialist',
+      serviceName: booking.serviceType || 'Home Service',
+      category: booking.category || 'General',
+      serviceAmount: booking.priceBreakdown?.subtotal || 500,
+      startDate: new Date(),
+      durationDays,
+      expiryDate,
+      status: 'Active',
+      coverageTerms: `100% Free rework guarantee for ${durationDays} days covering workmanship, leakage, and certified spare parts performance.`
+    });
+    await warranty.save();
+    return warranty;
+  } catch (err) {
+    console.error('Error creating warranty for booking:', err.message);
+  }
+}
+
 // Middlewares
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Auth Middleware
@@ -887,6 +1116,16 @@ app.put('/api/bookings/:id', auth, async (req, res) => {
     const booking = await Booking.findByIdAndUpdate(req.params.id, updates, { new: true });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
 
+    // When status becomes Completed, sync provider wallet and warranty immediately
+    if (status === 'Completed') {
+      try {
+        await getOrCreateProviderWallet(booking.providerId, booking.providerName);
+        await createOrUpdateWarrantyForBooking(booking);
+      } catch (e) {
+        console.error('Completed booking sync error:', e);
+      }
+    }
+
     // Notify customer when provider updates status
     if (status && booking.userId !== req.userId) {
       await createAndSendNotification({
@@ -1225,6 +1464,102 @@ app.put('/api/admin/providers/:id/approve', auth, adminOnly, async (req, res) =>
     );
     if (!provider) return res.status(404).json({ error: 'Provider not found' });
     res.json(provider);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Provider Complete Activity & Work History (Admin inspection)
+app.get('/api/admin/providers/:id/activity-history', auth, adminOnly, async (req, res) => {
+  try {
+    let provider = null;
+    if (mongoose.Types.ObjectId.isValid(req.params.id)) {
+      provider = await User.findById(req.params.id);
+    }
+    if (!provider) {
+      provider = await User.findOne({ $or: [{ _id: req.params.id }, { id: req.params.id }] });
+    }
+    if (!provider) return res.status(404).json({ error: 'Provider not found' });
+
+    // Fetch all bookings assigned/completed for this provider
+    const bookings = await Booking.find({
+      $or: [
+        { providerId: provider.id },
+        { providerId: provider._id.toString() },
+        { providerName: provider.name }
+      ]
+    }).sort({ createdAt: -1 });
+
+    // Fetch provider wallet
+    const pWallet = await getOrCreateProviderWallet(provider.id, provider.name, provider.phone);
+
+    // Fetch provider level
+    const pLevel = await getOrCreateProviderLevel(provider.id);
+
+    // Fetch all genuine reviews for this provider
+    const reviews = await Review.find({
+      $or: [
+        { providerId: provider.id },
+        { providerId: provider._id.toString() },
+        { providerName: provider.name }
+      ]
+    }).sort({ createdAt: -1 });
+
+    // Fetch all digital warranties for bookings
+    const warranties = await Warranty.find({
+      $or: [
+        { providerId: provider.id },
+        { providerId: provider._id.toString() },
+        { providerName: provider.name }
+      ]
+    }).sort({ createdAt: -1 });
+
+    // Summary calculations
+    let totalWorkVolume = 0;
+    let totalProviderEarnings = 0;
+    let totalPlatformCommission = 0;
+
+    bookings.forEach(b => {
+      const rawPrice = b.priceBreakdown?.subtotal || (typeof b.price === 'number' ? b.price : parseInt(String(b.price || 0).replace(/[^\d]/g, ''), 10)) || 0;
+      totalWorkVolume += rawPrice;
+      totalProviderEarnings += (b.priceBreakdown?.providerEarnings || Math.round(rawPrice * 0.85));
+      totalPlatformCommission += (b.priceBreakdown?.platformCommission || Math.round(rawPrice * 0.15));
+    });
+
+    const stats = {
+      totalAssignedBookings: bookings.length,
+      completedJobs: bookings.filter(b => b.status === 'Completed').length,
+      confirmedJobs: bookings.filter(b => b.status === 'Confirmed').length,
+      inProgressJobs: bookings.filter(b => b.status === 'In Progress' || b.status === 'Specialist Assigned').length,
+      cancelledJobs: bookings.filter(b => b.status === 'Cancelled').length,
+      totalWorkVolume,
+      totalProviderEarnings,
+      totalPlatformCommission,
+      availableBalance: pWallet.availableBalance,
+      pendingSettlement: pWallet.pendingSettlement,
+      totalWithdrawn: pWallet.totalWithdrawn,
+      milestonePoints: pWallet.milestonePoints,
+      milestoneCyclesCompleted: pWallet.milestoneCyclesCompleted,
+      milestoneBonusEarned: pWallet.milestoneBonusEarned,
+      topProviderRank: pWallet.topProviderRank,
+      topProviderBonusEarned: pWallet.topProviderBonusEarned,
+      avgCustomerRating: reviews.length > 0
+        ? +(reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+        : (pLevel.rating || 5.0),
+      totalReviewsCount: reviews.length,
+      trustScore: pLevel.trustScore || 96,
+      onTimePercentage: pLevel.onTimePercentage || 98
+    };
+
+    res.json({
+      provider,
+      stats,
+      bookings,
+      wallet: pWallet,
+      level: pLevel,
+      reviews,
+      warranties
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3149,6 +3484,1290 @@ mongoose.connect(MONGODB_URI)
       console.log('🌱 Service Catalog seeded successfully!');
     }
 
+    // Auto-seed Training Courses if empty
+    const trainingCount = await TrainingCourse.countDocuments();
+    if (trainingCount === 0) {
+      await TrainingCourse.insertMany([
+        {
+          title: 'Safety Standards & PPE Compliance',
+          category: 'safety',
+          badgeName: 'Certified Safety Specialist',
+          durationHours: 3,
+          level: 'Basic',
+          description: 'Comprehensive occupational safety, electrical shock prevention, high-pressure plumbing protection, and client site hygiene.',
+          topicsCovered: ['PPE Equipment Usage', 'Shock Prevention', 'Chemical Safety in Cleaning', 'Customer Home Etiquette'],
+          passingScore: 85,
+          enrolledCount: 340
+        },
+        {
+          title: 'Advanced Inverter AC Diagnostics & Leak Detection',
+          category: 'hvac',
+          badgeName: 'HVAC Master Technician',
+          durationHours: 6,
+          level: 'Advanced',
+          description: 'Master troubleshooting inverter compressor faults, eco-refrigerant R32 charging, and electronic expansion valve testing.',
+          topicsCovered: ['R32/R410A Refrigerant Recovery', 'Micro-leak UV Detection', 'PCB Diagnostics', 'Airflow Optimization'],
+          passingScore: 90,
+          enrolledCount: 210
+        },
+        {
+          title: 'Smart Home Automation & Modular Electricals',
+          category: 'electrical',
+          badgeName: 'Smart Home Certified',
+          durationHours: 5,
+          level: 'Intermediate',
+          description: 'Wiring smart touch switches, modular distribution boards, surge protection devices, and IoT gateway connectivity.',
+          topicsCovered: ['Neutral Wire Load Distribution', 'Smart WiFi Relays', 'Earthing Resistance Testing', 'Surge Arrestors'],
+          passingScore: 85,
+          enrolledCount: 280
+        },
+        {
+          title: 'Precision CPVC/PPR Plumbing & Hydrostatic Testing',
+          category: 'plumbing',
+          badgeName: 'Precision Plumbing Master',
+          durationHours: 4,
+          level: 'Master',
+          description: 'Certified fusion welding for PPR pipes, multi-story water pressure balancing, concealed shower diverter installation.',
+          topicsCovered: ['Heat Fusion Technique', 'Concealed Valve Calibration', 'Pressure Regulating Valves', 'Anti-siphon Systems'],
+          passingScore: 85,
+          enrolledCount: 195
+        }
+      ]);
+      console.log('🌱 Seeded Provider Training & Certification Courses!');
+    }
+
+    // Auto-seed Reward Rules if empty
+    const rulesCount = await RewardRule.countDocuments();
+    if (rulesCount === 0) {
+      await RewardRule.create({
+        pointsPerHundredRupees: 5,
+        redemptionRate: 1,
+        welcomeBonusPoints: 100,
+        referralBonusRupees: 150,
+        emergencySurcharge: 150,
+        activeCampaignName: 'Festival Service Rewards Extravaganza',
+        activeCampaignMultiplier: 1.5
+      });
+      console.log('🌱 Seeded Default Reward Rules & Loyalty Campaigns!');
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── CUSTOMER RETENTION REST APIS ─────────────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+
+    // 1. Customer Retention Summary (Wallet, Rewards, Warranties, Membership, History)
+    app.get('/api/customer/retention-summary', auth, async (req, res) => {
+      try {
+        const user = await User.findById(req.userId);
+        const wallet = await getOrCreateCustomerWallet(req.userId, user?.name);
+        const membership = await getOrCreateCustomerMembership(req.userId, user?.name, user?.email);
+        
+        // Auto-generate warranty for completed bookings if missing
+        const completedBookings = await Booking.find({ userId: req.userId, status: 'Completed' });
+        for (const b of completedBookings) {
+          await createOrUpdateWarrantyForBooking(b);
+        }
+
+        const warranties = await Warranty.find({ userId: req.userId }).sort({ createdAt: -1 });
+        const allBookings = await Booking.find({ userId: req.userId }).sort({ createdAt: -1 });
+        const rule = (await RewardRule.findOne()) || { pointsPerHundredRupees: 5, redemptionRate: 1 };
+
+        res.json({
+          wallet: {
+            balance: wallet.balance,
+            cashbackBalance: wallet.cashbackBalance,
+            promoCredits: wallet.promoCredits,
+            rewardPoints: wallet.rewardPoints,
+            referralCode: wallet.referralCode,
+            totalEarned: wallet.totalEarned,
+            transactions: wallet.transactions
+          },
+          membership,
+          activeWarranties: warranties.filter(w => w.status === 'Active'),
+          allWarranties: warranties,
+          serviceHistory: allBookings,
+          rules: rule
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 2. Warranties List
+    app.get('/api/warranties', auth, async (req, res) => {
+      try {
+        const warranties = await Warranty.find({ userId: req.userId }).sort({ createdAt: -1 });
+        res.json(warranties);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 3. File Warranty Claim
+    app.post('/api/warranties/:id/claim', auth, async (req, res) => {
+      try {
+        const { issueDescription } = req.body;
+        if (!issueDescription) {
+          return res.status(400).json({ error: 'Issue description is required to file a warranty claim' });
+        }
+
+        const warranty = await Warranty.findOne({ _id: req.params.id, userId: req.userId });
+        if (!warranty) {
+          return res.status(404).json({ error: 'Warranty not found' });
+        }
+
+        const newClaim = {
+          id: `CLM-${Date.now()}`,
+          claimDate: new Date(),
+          issueDescription,
+          status: 'Pending',
+          resolutionNotes: 'Claim received. Quality team is dispatching a specialist for zero-cost inspection.',
+          assignedProviderId: warranty.providerId,
+          assignedProviderName: warranty.providerName
+        };
+
+        warranty.claims.push(newClaim);
+        warranty.status = 'Claimed';
+        await warranty.save();
+
+        // Notify user & provider
+        await createAndSendNotification({
+          userId: req.userId,
+          title: '🛡️ Warranty Claim Received',
+          message: `Claim filed for ${warranty.serviceName} (#${warranty.warrantyNumber}). A free specialist review is in progress.`,
+          type: 'warranty_claim'
+        });
+
+        res.json({ success: true, warranty, claim: newClaim });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 4. Customer Wallet Topup / Redeem
+    app.get('/api/wallet', auth, async (req, res) => {
+      try {
+        const user = await User.findById(req.userId);
+        const wallet = await getOrCreateCustomerWallet(req.userId, user?.name);
+        res.json(wallet);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post('/api/wallet/topup', auth, async (req, res) => {
+      try {
+        const { amount, description } = req.body;
+        const topupAmt = Math.max(0, parseInt(amount) || 0);
+        if (topupAmt <= 0) return res.status(400).json({ error: 'Invalid topup amount' });
+
+        const wallet = await getOrCreateCustomerWallet(req.userId);
+        wallet.balance += topupAmt;
+        wallet.totalEarned += topupAmt;
+        wallet.transactions.unshift({
+          id: `WT-${Date.now()}`,
+          type: 'topup',
+          amount: topupAmt,
+          description: description || 'Wallet cash top-up credited.',
+          date: new Date()
+        });
+        await wallet.save();
+        res.json(wallet);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post('/api/wallet/redeem', auth, async (req, res) => {
+      try {
+        const { amount, bookingId, description } = req.body;
+        const redeemAmt = Math.max(0, parseInt(amount) || 0);
+        const wallet = await getOrCreateCustomerWallet(req.userId);
+
+        if (redeemAmt > wallet.balance) {
+          return res.status(400).json({ error: 'Insufficient wallet balance' });
+        }
+
+        wallet.balance -= redeemAmt;
+        wallet.totalSpent += redeemAmt;
+        wallet.transactions.unshift({
+          id: `WT-${Date.now()}`,
+          type: 'booking_payment',
+          amount: redeemAmt,
+          description: description || `Wallet discount applied for booking #${bookingId || ''}`,
+          bookingId: bookingId || null,
+          date: new Date()
+        });
+        await wallet.save();
+        res.json({ success: true, newBalance: wallet.balance, redeemed: redeemAmt });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 5. Reward Points API
+    app.get('/api/rewards', auth, async (req, res) => {
+      try {
+        const wallet = await getOrCreateCustomerWallet(req.userId);
+        const rule = (await RewardRule.findOne()) || { pointsPerHundredRupees: 5, redemptionRate: 1 };
+        res.json({
+          rewardPoints: wallet.rewardPoints,
+          cashbackBalance: wallet.cashbackBalance,
+          referralCode: wallet.referralCode,
+          rule
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post('/api/rewards/redeem', auth, async (req, res) => {
+      try {
+        const { pointsToRedeem } = req.body;
+        const points = Math.max(0, parseInt(pointsToRedeem) || 0);
+        const wallet = await getOrCreateCustomerWallet(req.userId);
+        const rule = (await RewardRule.findOne()) || { redemptionRate: 1 };
+
+        if (points > wallet.rewardPoints) {
+          return res.status(400).json({ error: 'Insufficient reward points' });
+        }
+
+        const rupeeVal = Math.round(points * rule.redemptionRate);
+        wallet.rewardPoints -= points;
+        wallet.balance += rupeeVal;
+        wallet.cashbackBalance += rupeeVal;
+        wallet.totalEarned += rupeeVal;
+        wallet.transactions.unshift({
+          id: `WT-${Date.now()}`,
+          type: 'reward_redemption',
+          amount: rupeeVal,
+          description: `Converted ${points} loyalty points into ₹${rupeeVal} wallet cashback.`,
+          date: new Date()
+        });
+        await wallet.save();
+        res.json({ success: true, newPoints: wallet.rewardPoints, newBalance: wallet.balance });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 6. Membership Plans
+    app.get('/api/memberships/plans', (req, res) => {
+      res.json([
+        {
+          id: 'free',
+          name: 'Free Shield',
+          price: 0,
+          billing: 'Free Forever',
+          discount: '0% off',
+          warranty: '90-Day Standard Warranty',
+          badge: 'Standard',
+          features: ['Standard Provider Dispatch', '90-Day Workmanship Warranty', 'Split Invoice Downloads', 'Community Reviews Access']
+        },
+        {
+          id: 'silver',
+          name: 'Silver Shield Plus',
+          price: 299,
+          billing: '₹299 for 6 Months',
+          discount: '5% Off All Services',
+          warranty: '120-Day Extended Warranty',
+          badge: 'Popular',
+          features: ['5% Instant Bill Discount', '120-Day Extended Warranty', 'Priority Specialist Dispatch', '1 Free Annual AC Inspection', 'Zero Cancellation Charges']
+        },
+        {
+          id: 'gold',
+          name: 'Gold Home Protection',
+          price: 599,
+          billing: '₹599 / Year',
+          discount: '10% Off All Services',
+          warranty: '180-Day Double Warranty',
+          badge: 'Best Value',
+          features: ['10% Instant Bill Discount', '180-Day Extended Warranty', 'Priority Emergency Dispatch (30-min SLA)', '2 Free Annual Plumbing & Electrical Audits', 'Dedicated WhatsApp Concierge']
+        },
+        {
+          id: 'platinum',
+          name: 'Platinum VIP Shield',
+          price: 999,
+          billing: '₹999 / Year',
+          discount: '15% Off All Services',
+          warranty: '365-Day 1-Year Full Coverage',
+          badge: 'VIP Elite',
+          features: ['15% Instant Bill Discount', '365-Day Full Year Warranty', 'Zero Emergency Surcharges', 'Unlimited Priority Dispatches', 'VIP Account Manager & 24/7 Hotline']
+        }
+      ]);
+    });
+
+    app.post('/api/memberships/subscribe', auth, async (req, res) => {
+      try {
+        const { planType } = req.body;
+        const validPlans = {
+          free: { name: 'ServiceHub Free Shield', price: 0, discount: 0, months: 0 },
+          silver: { name: 'Silver Shield Plus', price: 299, discount: 5, months: 6 },
+          gold: { name: 'Gold Home Protection', price: 599, discount: 10, months: 12 },
+          platinum: { name: 'Platinum VIP Shield', price: 999, discount: 15, months: 12 }
+        };
+
+        const target = validPlans[planType] || validPlans.free;
+        const user = await User.findById(req.userId);
+        const membership = await getOrCreateCustomerMembership(req.userId, user?.name, user?.email);
+
+        membership.planType = planType;
+        membership.planName = target.name;
+        membership.discountPercent = target.discount;
+        membership.amountPaid = target.price;
+        membership.startDate = new Date();
+        if (target.months > 0) {
+          const exp = new Date();
+          exp.setMonth(exp.getMonth() + target.months);
+          membership.expiresAt = exp;
+        } else {
+          membership.expiresAt = null;
+        }
+        await membership.save();
+
+        res.json({ success: true, membership });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 7. One-Click Rebooking Payload Generator
+    app.get('/api/customer/rebooking/:bookingId', auth, async (req, res) => {
+      try {
+        const booking = await Booking.findById(req.params.bookingId);
+        if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+        const provider = await User.findById(booking.providerId) || {
+          id: booking.providerId,
+          name: booking.providerName,
+          category: booking.category,
+          location: booking.location,
+          phone: booking.phone
+        };
+
+        res.json({
+          providerId: booking.providerId,
+          providerName: booking.providerName,
+          category: booking.category,
+          serviceType: booking.serviceType,
+          location: booking.location,
+          phone: booking.phone,
+          serviceItems: booking.serviceItems || []
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── PROVIDER BUSINESS CENTER REST APIS ───────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+
+    // 1. Provider Business Analytics
+    app.get('/api/provider-business/analytics', auth, async (req, res) => {
+      try {
+        const providerId = req.userId;
+        const allBookings = await Booking.find({ providerId });
+        const completed = allBookings.filter(b => b.status === 'Completed');
+        const cancelled = allBookings.filter(b => b.status === 'Cancelled');
+
+        // Calculate today's earnings
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayBookings = completed.filter(b => b.date === todayStr || (b.createdAt && b.createdAt.toISOString().split('T')[0] === todayStr));
+        const todayEarnings = todayBookings.reduce((sum, b) => sum + (b.priceBreakdown?.providerEarnings || parsePrice(b.price) || 0), 0);
+
+        // Monthly & Yearly
+        const totalEarnings = completed.reduce((sum, b) => sum + (b.priceBreakdown?.providerEarnings || parsePrice(b.price) || 0), 0);
+        const monthlyEarnings = Math.round(totalEarnings * 0.45) || (completed.length * 450);
+        const yearlyEarnings = totalEarnings || (completed.length * 520);
+
+        // Repeat customers count
+        const customerMap = {};
+        allBookings.forEach(b => {
+          if (b.customerEmail) customerMap[b.customerEmail] = (customerMap[b.customerEmail] || 0) + 1;
+        });
+        const repeatCount = Object.values(customerMap).filter(count => count > 1).length;
+
+        // Popular services breakdown
+        const serviceCountMap = {};
+        completed.forEach(b => {
+          const sName = b.serviceType || 'General Service';
+          serviceCountMap[sName] = (serviceCountMap[sName] || 0) + 1;
+        });
+
+        const popularServices = Object.keys(serviceCountMap).map(k => ({
+          name: k,
+          count: serviceCountMap[k],
+          percentage: Math.round((serviceCountMap[k] / Math.max(1, completed.length)) * 100)
+        }));
+
+        res.json({
+          todayEarnings,
+          monthlyEarnings,
+          yearlyEarnings,
+          totalCompleted: completed.length,
+          totalCancelled: cancelled.length,
+          repeatCustomers: repeatCount,
+          averageRating: 4.9,
+          growthRate: '+24.6% vs last month',
+          popularServices
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 2. Provider Reputation System — Real Customer Reviews from Completed Bookings
+    app.get('/api/provider-business/reputation', auth, async (req, res) => {
+      try {
+        const pLevel = await getOrCreateProviderLevel(req.userId);
+        const providerUser = await User.findById(req.userId);
+        const allBookings = await Booking.find({ 
+          $or: [{ providerId: req.userId }, ...(providerUser?.name ? [{ providerName: providerUser.name }] : [])]
+        });
+        const completed = allBookings.filter(b => b.status === 'Completed');
+
+        // Query real reviews submitted by customers who booked this provider
+        const realReviews = await Review.find({
+          $or: [
+            { providerId: req.userId },
+            { providerId: req.userId.toString() },
+            ...(providerUser?.name ? [{ providerName: providerUser.name }] : [])
+          ]
+        }).sort({ createdAt: -1 });
+
+        const totalRealReviews = realReviews.length;
+        const realAvgRating = totalRealReviews > 0
+          ? +(realReviews.reduce((s, r) => s + r.rating, 0) / totalRealReviews).toFixed(1)
+          : (completed.length > 0 ? 4.9 : 5.0);
+
+        // Dynamically compute verified trust score from genuine ratings & completed work
+        const dynamicTrustScore = Math.min(100, Math.round(
+          (realAvgRating / 5.0 * 50) + 
+          Math.min(25, completed.length * 2.5) + 
+          ((pLevel.onTimePercentage || 98) * 0.25)
+        ));
+
+        const formattedReviews = realReviews.map(r => ({
+          id: r.id || r._id.toString(),
+          customerName: r.customerName || 'Verified Customer',
+          rating: r.rating || 5,
+          comment: r.comment || 'Job completed professionally and on schedule.',
+          serviceType: r.serviceType || 'Service Completed',
+          bookingId: r.bookingId,
+          date: r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent'
+        }));
+
+        res.json({
+          verifiedBadge: true,
+          trustScore: dynamicTrustScore,
+          onTimePercentage: pLevel.onTimePercentage || 98,
+          responseRatePercentage: pLevel.responseRatePercentage || 99,
+          completedJobs: Math.max(pLevel.completedJobsCount || 0, completed.length),
+          repeatCustomers: pLevel.repeatCustomersCount || Math.round(completed.length * 0.3),
+          averageRating: realAvgRating,
+          totalReviewsCount: totalRealReviews,
+          experienceLevel: pLevel.experienceYears || '5+ Yrs',
+          recentReviews: formattedReviews
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 3. Provider Membership Levels (Bronze -> Silver -> Gold -> Platinum)
+    app.get('/api/provider-business/levels', auth, async (req, res) => {
+      try {
+        const pLevel = await getOrCreateProviderLevel(req.userId);
+        const tiers = [
+          { name: 'Bronze', minJobs: 0, commissionDiscount: '0%', perks: ['Standard Leads', 'Profile Listing', 'Standard Settlement'] },
+          { name: 'Silver', minJobs: 15, commissionDiscount: '1% Off', perks: ['Verified Specialist Badge', '1.25x Priority Leads', 'Direct WhatsApp Contact', '1% Commission Discount'] },
+          { name: 'Gold', minJobs: 40, commissionDiscount: '2% Off', perks: ['Top Specialist Gold Badge', '1.5x Lead Priority', 'Free Safety Tool Kit', '2% Commission Discount', 'Exclusive Wholesale Spares'] },
+          { name: 'Platinum', minJobs: 100, commissionDiscount: '3% Off', perks: ['Elite Platinum Badge', '2.0x Top Dispatch Priority', 'Zero Platform Commission Days', 'Dedicated Service Manager', 'Instant Same-Day Settlement'] }
+        ];
+
+        res.json({
+          currentTier: pLevel.tier,
+          trustScore: pLevel.trustScore,
+          completedJobs: pLevel.completedJobsCount,
+          unlockedPerks: pLevel.unlockedPerks,
+          tiers
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 4. Provider Business Reports (Monthly Summary, Invoices, Export)
+    app.get('/api/provider-business/reports', auth, async (req, res) => {
+      try {
+        const bookings = await Booking.find({ providerId: req.userId, status: 'Completed' }).sort({ createdAt: -1 });
+        const summary = {
+          generatedAt: new Date(),
+          totalInvoicedJobs: bookings.length,
+          grossRevenue: bookings.reduce((sum, b) => sum + (b.priceBreakdown?.subtotal || parsePrice(b.price) || 0), 0),
+          netProviderEarnings: bookings.reduce((sum, b) => sum + (b.priceBreakdown?.providerEarnings || parsePrice(b.price) || 0), 0),
+          platformCommissionPaid: bookings.reduce((sum, b) => sum + (b.priceBreakdown?.platformCommission || 0), 0),
+          monthlyBreakdown: [
+            { month: 'Current Month', jobs: bookings.length, revenue: bookings.reduce((sum, b) => sum + (b.priceBreakdown?.providerEarnings || 0), 0) },
+            { month: 'Previous Month', jobs: Math.max(1, Math.round(bookings.length * 0.8)), revenue: 14500 },
+            { month: 'Two Months Ago', jobs: Math.max(1, Math.round(bookings.length * 0.6)), revenue: 11200 }
+          ],
+          bookingsList: bookings.map(b => ({
+            id: b.id,
+            trackingId: b.trackingId,
+            date: b.date,
+            customer: b.customerName,
+            service: b.serviceType,
+            amount: b.priceBreakdown?.subtotal || parsePrice(b.price),
+            earnings: b.priceBreakdown?.providerEarnings || parsePrice(b.price),
+            commission: b.priceBreakdown?.platformCommission || 0
+          }))
+        };
+        res.json(summary);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 5. Provider Wallet & Withdrawal
+    app.get('/api/provider-business/wallet', auth, async (req, res) => {
+      try {
+        const user = await User.findById(req.userId);
+        const pWallet = await getOrCreateProviderWallet(req.userId, user?.name, user?.phone);
+        res.json(pWallet);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post('/api/provider-business/wallet/withdraw', auth, async (req, res) => {
+      try {
+        const { amount, upiId } = req.body;
+        const withdrawAmt = Math.max(0, parseInt(amount) || 0);
+        if (withdrawAmt < 100) {
+          return res.status(400).json({ error: 'Minimum withdrawal amount is ₹100' });
+        }
+
+        const user = await User.findById(req.userId);
+        const pWallet = await getOrCreateProviderWallet(req.userId, user?.name, user?.phone);
+
+        if (withdrawAmt > pWallet.availableBalance) {
+          return res.status(400).json({ error: 'Insufficient available wallet balance' });
+        }
+
+        pWallet.availableBalance -= withdrawAmt;
+        pWallet.pendingSettlement += withdrawAmt;
+        const newRequest = {
+          id: `PWR-${Date.now()}`,
+          amount: withdrawAmt,
+          upiId: upiId || user?.upiId || 'provider@upi',
+          status: 'Pending',
+          requestDate: new Date(),
+          processedDate: null,
+          adminNotes: 'Payout request queued for bank NEFT / UPI settlement.'
+        };
+        pWallet.payoutRequests.unshift(newRequest);
+        pWallet.transactions.unshift({
+          id: `PWT-${Date.now()}`,
+          type: 'withdrawal',
+          amount: withdrawAmt,
+          description: `Withdrawal request submitted to UPI ID: ${upiId || 'provider@upi'}`,
+          status: 'Pending',
+          date: new Date()
+        });
+        await pWallet.save();
+
+        res.json({ success: true, wallet: pWallet, request: newRequest });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 6. AI Business Insights (Future-Ready with Smart Heuristics)
+    app.get('/api/provider-business/insights', auth, async (req, res) => {
+      res.json({
+        highDemandServices: [
+          { service: 'Inverter AC Jet Pump Cleaning & Gas Leak Test', demandScore: 98, avgTicket: '₹1,200', surgeHours: '09:00 AM - 01:00 PM' },
+          { service: 'Concealed Bathroom Pipe Replacement & Pressure Balancing', demandScore: 92, avgTicket: '₹1,850', surgeHours: '07:30 AM - 11:30 AM' },
+          { service: 'MCB Tripping & Modular Circuit Diagnostics', demandScore: 89, avgTicket: '₹750', surgeHours: '04:00 PM - 08:30 PM' }
+        ],
+        peakWorkingHours: 'Mon-Sat: 08:30 AM - 12:30 PM & 04:30 PM - 07:30 PM',
+        seasonalTrends: 'Current Monsoon Season: High surge in water heater repairs, roof dampness waterproofing, and lightning surge arrestor installations.',
+        businessTips: [
+          'Offering 90-day digital warranty cards increases repeat booking chances by 68%.',
+          'Supplying certified materials via Partner Shops earns you an additional 5% cashback.',
+          'Completing safety certification boosts your Trust Score to 98/100 for top lead priority.'
+        ]
+      });
+    });
+
+    // 7. Materials Marketplace Benefits for Providers
+    app.get('/api/provider-business/marketplace-benefits', auth, async (req, res) => {
+      try {
+        const shops = await PartnerShop.find({ status: 'Verified' }).limit(6);
+        res.json({
+          providerDiscountPercent: 12, // 12% wholesale discount for certified providers
+          partnerShopsCount: shops.length,
+          fastDeliveryTime: '30 - 45 Minutes on-site delivery',
+          benefits: [
+            '12% Exclusive Wholesale Discount on all branded electrical & plumbing spares',
+            'Priority counter pickup with zero waiting time at all partner stores',
+            '5% Cashback credited directly to Provider Wallet on every material order',
+            '100% Genuine manufacturer warranty backed replacement'
+          ],
+          nearbyShops: shops
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 8. Provider Training & Certification Center
+    app.get('/api/provider-business/training', auth, async (req, res) => {
+      try {
+        const courses = await TrainingCourse.find();
+        const myCerts = await ProviderCertificate.find({ providerId: req.userId });
+        res.json({ courses, myCertificates: myCerts });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post('/api/provider-business/training/:courseId/complete', auth, async (req, res) => {
+      try {
+        const course = await TrainingCourse.findById(req.params.courseId);
+        if (!course) return res.status(404).json({ error: 'Course not found' });
+
+        const user = await User.findById(req.userId);
+        const certNumber = `SH-CERT-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+
+        const certificate = new ProviderCertificate({
+          certificateNumber: certNumber,
+          providerId: req.userId,
+          providerName: user?.name || 'Certified Specialist',
+          courseId: course.id,
+          courseTitle: course.title,
+          category: course.category,
+          score: 95,
+          status: 'Active',
+          verificationUrl: `/verify-cert/${certNumber}`
+        });
+        await certificate.save();
+
+        // Update provider trust score
+        const pLevel = await getOrCreateProviderLevel(req.userId);
+        pLevel.trustScore = Math.min(100, pLevel.trustScore + 2);
+        if (!pLevel.unlockedPerks.includes(course.badgeName)) {
+          pLevel.unlockedPerks.push(course.badgeName);
+        }
+        await pLevel.save();
+
+        res.json({ success: true, certificate, newTrustScore: pLevel.trustScore });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── ADMIN RETENTION MANAGEMENT REST APIS ─────────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+
+    // 1. Admin Retention Overview
+    app.get('/api/admin/retention/overview', auth, async (req, res) => {
+      try {
+        const activeWarranties = await Warranty.countDocuments({ status: 'Active' });
+        const claimedWarranties = await Warranty.countDocuments({ status: 'Claimed' });
+        const activeMemberships = await CustomerMembership.countDocuments({ planType: { $ne: 'free' } });
+        const providerWallets = await ProviderWallet.find();
+        const pendingPayouts = providerWallets.reduce((sum, w) => sum + (w.pendingSettlement || 0), 0);
+        const rules = (await RewardRule.findOne()) || {};
+
+        res.json({
+          activeWarranties,
+          claimedWarranties,
+          activeMemberships,
+          pendingPayoutsTotal: pendingPayouts,
+          rules
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 2. Admin Warranty Claims
+    app.get('/api/admin/retention/warranty-claims', auth, async (req, res) => {
+      try {
+        const warrantiesWithClaims = await Warranty.find({ 'claims.0': { $exists: true } }).sort({ updatedAt: -1 });
+        res.json(warrantiesWithClaims);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.put('/api/admin/retention/warranty-claims/:id', auth, async (req, res) => {
+      try {
+        const { status, resolutionNotes, assignedProviderName } = req.body;
+        const warranty = await Warranty.findById(req.params.id);
+        if (!warranty) return res.status(404).json({ error: 'Warranty not found' });
+
+        if (warranty.claims.length > 0) {
+          const lastClaim = warranty.claims[warranty.claims.length - 1];
+          if (status) lastClaim.status = status;
+          if (resolutionNotes) lastClaim.resolutionNotes = resolutionNotes;
+          if (assignedProviderName) lastClaim.assignedProviderName = assignedProviderName;
+        }
+        if (status === 'Resolved') warranty.status = 'Active';
+        await warranty.save();
+
+        res.json({ success: true, warranty });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 3. Admin Retention Rules
+    app.get('/api/admin/retention/rules', auth, async (req, res) => {
+      try {
+        const rules = (await RewardRule.findOne()) || await RewardRule.create({});
+        res.json(rules);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.put('/api/admin/retention/rules', auth, async (req, res) => {
+      try {
+        const { pointsPerHundredRupees, redemptionRate, welcomeBonusPoints, referralBonusRupees, emergencySurcharge, activeCampaignName } = req.body;
+        let rules = await RewardRule.findOne();
+        if (!rules) rules = new RewardRule({});
+        
+        if (pointsPerHundredRupees !== undefined) rules.pointsPerHundredRupees = pointsPerHundredRupees;
+        if (redemptionRate !== undefined) rules.redemptionRate = redemptionRate;
+        if (welcomeBonusPoints !== undefined) rules.welcomeBonusPoints = welcomeBonusPoints;
+        if (referralBonusRupees !== undefined) rules.referralBonusRupees = referralBonusRupees;
+        if (emergencySurcharge !== undefined) rules.emergencySurcharge = emergencySurcharge;
+        if (activeCampaignName !== undefined) rules.activeCampaignName = activeCampaignName;
+        
+        await rules.save();
+        res.json({ success: true, rules });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 4. Admin Provider Payout Requests
+    app.get('/api/admin/retention/payout-requests', auth, async (req, res) => {
+      try {
+        const wallets = await ProviderWallet.find({ 'payoutRequests.0': { $exists: true } });
+        const allRequests = [];
+        wallets.forEach(w => {
+          w.payoutRequests.forEach(r => {
+            allRequests.push({
+              providerId: w.providerId,
+              providerName: w.providerName,
+              providerPhone: w.providerPhone,
+              ...r.toObject()
+            });
+          });
+        });
+        res.json(allRequests.sort((a, b) => new Date(b.requestDate).getTime() - new Date(a.requestDate).getTime()));
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.put('/api/admin/retention/payout-requests/:id', auth, async (req, res) => {
+      try {
+        const { status, referenceId, adminNotes } = req.body;
+        const wallet = await ProviderWallet.findOne({ 'payoutRequests.id': req.params.id });
+        if (!wallet) return res.status(404).json({ error: 'Payout request not found' });
+
+        const reqObj = wallet.payoutRequests.find(r => r.id === req.params.id);
+        if (reqObj) {
+          reqObj.status = status || 'Transferred';
+          if (referenceId) reqObj.referenceId = referenceId;
+          if (adminNotes) reqObj.adminNotes = adminNotes;
+          reqObj.processedDate = new Date();
+
+          if (status === 'Transferred') {
+            wallet.pendingSettlement = Math.max(0, wallet.pendingSettlement - reqObj.amount);
+            wallet.totalWithdrawn += reqObj.amount;
+          } else if (status === 'Rejected') {
+            wallet.pendingSettlement = Math.max(0, wallet.pendingSettlement - reqObj.amount);
+            wallet.availableBalance += reqObj.amount; // Refund to wallet
+          }
+        }
+        await wallet.save();
+
+        res.json({ success: true, wallet });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 5. Admin Top 5 Providers Performance Leaderboard
+    app.get('/api/admin/retention/top-providers', auth, async (req, res) => {
+      try {
+        const providers = await User.find({ userType: 'provider' });
+        const results = [];
+
+        const recommendedBonuses = [
+          { rank: 1, bonus: 1500, title: '🥇 #1 Star Specialist Platform Award' },
+          { rank: 2, bonus: 1000, title: '🥈 #2 Top Quality Performer Award' },
+          { rank: 3, bonus: 750,  title: '🥉 #3 Customer Satisfaction Star' },
+          { rank: 4, bonus: 500,  title: '⭐ #4 High-Speed Response Master' },
+          { rank: 5, bonus: 250,  title: '🌟 #5 Reliability & Workmanship Star' }
+        ];
+
+        for (const p of providers) {
+          const providerId = p.id || p._id.toString();
+          const completedBookings = await Booking.find({
+            $or: [{ providerId }, { providerName: p.name }],
+            status: 'Completed'
+          });
+
+          let totalRevenue = 0;
+          for (const b of completedBookings) {
+            const rawPrice = b.priceBreakdown?.subtotal || (typeof b.price === 'number' ? b.price : parseInt(String(b.price || 0).replace(/[^\d]/g, ''), 10)) || 0;
+            totalRevenue += rawPrice;
+          }
+
+          const pLevel = await ProviderLevel.findOne({ providerId });
+          const pWallet = await ProviderWallet.findOne({ providerId });
+
+          const completedCount = completedBookings.length || pLevel?.completedJobsCount || (p.name ? 5 : 0);
+          const rating = pLevel?.rating || (4.7 + (completedCount % 4) * 0.1);
+          const milestonePoints = pWallet?.milestonePoints || (Math.floor(totalRevenue / 100) % 100);
+          const milestoneCycles = pWallet?.milestoneCyclesCompleted || Math.floor(Math.floor(totalRevenue / 100) / 100);
+          const topBonusEarned = pWallet?.topProviderBonusEarned || 0;
+
+          // Composite score: Job count + Customer Rating + Volume
+          const score = (completedCount * 20) + (rating * 25) + Math.min(100, totalRevenue / 100);
+
+          results.push({
+            providerId,
+            providerName: p.name || 'Certified Specialist',
+            providerPhone: p.phone || '9840994649',
+            category: p.category || 'Service Specialist',
+            completedJobs: completedCount,
+            customerRating: parseFloat(rating.toFixed(1)),
+            totalRevenue,
+            milestonePoints,
+            milestoneCycles,
+            topBonusEarned,
+            walletBalance: pWallet?.availableBalance || 0,
+            score
+          });
+        }
+
+        // Sort by composite score descending and take Top 5
+        results.sort((a, b) => b.score - a.score);
+        const top5 = results.slice(0, 5).map((p, idx) => ({
+          rank: idx + 1,
+          ...p,
+          recommendedBonus: recommendedBonuses[idx]?.bonus || 250,
+          bonusTitle: recommendedBonuses[idx]?.title || `Top #${idx + 1} Specialist Award`
+        }));
+
+        res.json({
+          topProviders: top5,
+          totalProvidersEvaluated: providers.length
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 6. Admin Award Bonus to Top Provider
+    app.post('/api/admin/retention/award-top-provider-bonus', auth, async (req, res) => {
+      try {
+        const { providerId, bonusAmount, bonusTitle, rank } = req.body;
+        const amt = Math.max(0, parseInt(bonusAmount) || 500);
+
+        const providerUser = await User.findById(providerId);
+        const pWallet = await getOrCreateProviderWallet(providerId, providerUser?.name, providerUser?.phone);
+
+        pWallet.availableBalance += amt;
+        pWallet.totalLifetimeEarnings += amt;
+        pWallet.topProviderBonusEarned = (pWallet.topProviderBonusEarned || 0) + amt;
+        pWallet.topProviderRank = rank || 1;
+
+        pWallet.transactions.unshift({
+          id: `PWT-TOP-${Date.now()}`,
+          type: 'top_provider_bonus',
+          amount: amt,
+          description: `🏆 Top #${rank || 1} Specialist Award Credited: ${bonusTitle || 'Top 5 Provider Excellence Bonus'}`,
+          status: 'Completed',
+          date: new Date()
+        });
+        await pWallet.save();
+
+        // Send congratulatory notification to the top provider
+        await createAndSendNotification({
+          userId: providerId,
+          title: `🏆 Top #${rank || 1} Specialist Star Bonus Awarded!`,
+          message: `Congratulations! ServiceHub Admin awarded you a ₹${amt.toLocaleString()} Top Provider Cash Bonus for outstanding customer ratings & work completed. Credited directly to your wallet!`,
+          type: 'provider_bonus'
+        });
+
+        res.json({ success: true, wallet: pWallet, bonusCredited: amt });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ── BOOKING-SPECIFIC SERVICEHUB CHAT SYSTEM ─────────────────────────
+    // ══════════════════════════════════════════════════════════════════════
+
+    // 1. Get or initialize booking conversation & messages
+    app.get('/api/chat/booking/:bookingId', auth, async (req, res) => {
+      try {
+        const bookingParam = req.params.bookingId;
+        const booking = await Booking.findOne({
+          $or: [
+            { trackingId: bookingParam },
+            ...(mongoose.Types.ObjectId.isValid(bookingParam) ? [{ _id: bookingParam }] : [])
+          ]
+        });
+
+        if (!booking) {
+          return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        // Security check: Must be the customer of this booking, the assigned provider, or an admin
+        const isCustomer = req.userId === booking.userId?.toString();
+        const isProvider = req.userId === booking.providerId?.toString();
+        const isAdmin = req.userType === 'admin';
+
+        if (!isCustomer && !isProvider && !isAdmin) {
+          return res.status(403).json({ error: 'Access Denied: You do not have permission to access this booking conversation.' });
+        }
+
+        // Find or create the conversation for this specific booking
+        let conversation = await ChatConversation.findOne({
+          $or: [
+            { bookingId: booking.trackingId },
+            { bookingMongoId: booking._id }
+          ]
+        });
+
+        if (!conversation) {
+          conversation = new ChatConversation({
+            bookingId: booking.trackingId,
+            bookingMongoId: booking._id,
+            customerId: booking.userId,
+            customerName: booking.customerName,
+            customerEmail: booking.customerEmail,
+            providerId: booking.providerId,
+            providerName: booking.providerName,
+            serviceType: booking.serviceType,
+            category: booking.category,
+            warrantyChatExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000), // 180-day support/warranty chat duration
+            status: 'open',
+            lastMessage: `Booking #${booking.trackingId} created for ${booking.serviceType}.`,
+            lastMessageAt: new Date(),
+            lastMessageSenderRole: 'system'
+          });
+          await conversation.save();
+
+          // Seed initial welcoming system message
+          const sysMsg = new ChatMessage({
+            conversationId: conversation._id,
+            bookingId: booking.trackingId,
+            senderId: 'system',
+            senderRole: 'system',
+            senderName: 'ServiceHub System',
+            message: `👋 Welcome! You are securely connected with ${booking.providerName} for ${booking.serviceType} (Booking #${booking.trackingId}). Need immediate support? Contact ServiceHub Support at 9840994649.`,
+            messageType: 'system',
+            read: true,
+            readAt: new Date()
+          });
+          await sysMsg.save();
+        }
+
+        // Check if warranty / chat window has expired
+        if (conversation.warrantyChatExpiresAt && new Date() > new Date(conversation.warrantyChatExpiresAt)) {
+          conversation.isReadOnly = true;
+        }
+
+        // Mark unread messages as read for the viewer
+        if (isCustomer) {
+          conversation.customerUnreadCount = 0;
+          await ChatMessage.updateMany(
+            { conversationId: conversation._id, senderRole: { $ne: 'customer' }, read: false },
+            { read: true, readAt: new Date() }
+          );
+        } else if (isProvider) {
+          conversation.providerUnreadCount = 0;
+          await ChatMessage.updateMany(
+            { conversationId: conversation._id, senderRole: { $ne: 'provider' }, read: false },
+            { read: true, readAt: new Date() }
+          );
+        }
+        await conversation.save();
+
+        const messages = await ChatMessage.find({ conversationId: conversation._id }).sort({ createdAt: 1 });
+
+        res.json({
+          success: true,
+          conversation,
+          messages,
+          booking: {
+            id: booking._id,
+            trackingId: booking.trackingId,
+            customerName: booking.customerName,
+            providerName: booking.providerName,
+            serviceType: booking.serviceType,
+            category: booking.category,
+            date: booking.date,
+            time: booking.time,
+            price: booking.price,
+            status: booking.status,
+            paymentStatus: booking.paymentStatus,
+            supportPhone: '9840994649'
+          }
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 2. Send message inside a specific booking conversation
+    app.post('/api/chat/booking/:bookingId/messages', auth, async (req, res) => {
+      try {
+        const { message, messageType = 'text', mediaUrl } = req.body;
+        if (!message || !message.trim()) {
+          return res.status(400).json({ error: 'Message cannot be empty.' });
+        }
+
+        const bookingParam = req.params.bookingId;
+        const booking = await Booking.findOne({
+          $or: [
+            { trackingId: bookingParam },
+            ...(mongoose.Types.ObjectId.isValid(bookingParam) ? [{ _id: bookingParam }] : [])
+          ]
+        });
+
+        if (!booking) {
+          return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        const isCustomer = req.userId === booking.userId?.toString();
+        const isProvider = req.userId === booking.providerId?.toString();
+        const isAdmin = req.userType === 'admin';
+
+        if (!isCustomer && !isProvider && !isAdmin) {
+          return res.status(403).json({ error: 'Access Denied: You cannot send messages in this booking conversation.' });
+        }
+
+        let conversation = await ChatConversation.findOne({
+          $or: [
+            { bookingId: booking.trackingId },
+            { bookingMongoId: booking._id }
+          ]
+        });
+
+        if (!conversation) {
+          conversation = new ChatConversation({
+            bookingId: booking.trackingId,
+            bookingMongoId: booking._id,
+            customerId: booking.userId,
+            customerName: booking.customerName,
+            customerEmail: booking.customerEmail,
+            providerId: booking.providerId,
+            providerName: booking.providerName,
+            serviceType: booking.serviceType,
+            category: booking.category,
+            status: 'open'
+          });
+          await conversation.save();
+        }
+
+        if (conversation.isReadOnly && !isAdmin) {
+          return res.status(400).json({ error: 'This booking conversation is now in read-only archive mode.' });
+        }
+
+        // Determine sender identity
+        let senderRole = 'customer';
+        let senderName = booking.customerName;
+
+        if (isAdmin) {
+          senderRole = 'admin';
+          senderName = 'ServiceHub Support';
+        } else if (isProvider) {
+          senderRole = 'provider';
+          senderName = booking.providerName;
+        }
+
+        const chatMsg = new ChatMessage({
+          conversationId: conversation._id,
+          bookingId: booking.trackingId,
+          senderId: req.userId,
+          senderRole,
+          senderName,
+          message: message.trim(),
+          messageType,
+          mediaUrl: mediaUrl || '',
+          read: false
+        });
+        await chatMsg.save();
+
+        // Update conversation metadata
+        conversation.lastMessage = message.trim();
+        conversation.lastMessageAt = new Date();
+        conversation.lastMessageSenderRole = senderRole;
+
+        if (senderRole === 'customer') {
+          conversation.providerUnreadCount = (conversation.providerUnreadCount || 0) + 1;
+        } else if (senderRole === 'provider') {
+          conversation.customerUnreadCount = (conversation.customerUnreadCount || 0) + 1;
+        } else if (senderRole === 'admin') {
+          conversation.customerUnreadCount = (conversation.customerUnreadCount || 0) + 1;
+          conversation.providerUnreadCount = (conversation.providerUnreadCount || 0) + 1;
+        }
+        await conversation.save();
+
+        // Trigger Notification for the other party
+        if (senderRole === 'customer' && mongoose.Types.ObjectId.isValid(booking.providerId)) {
+          await createAndSendNotification({
+            userId: booking.providerId,
+            title: `New message from ${booking.customerName} for Booking #${booking.trackingId}`,
+            message: message.trim(),
+            type: 'chat',
+            bookingId: booking._id
+          });
+        } else if (senderRole === 'provider' && mongoose.Types.ObjectId.isValid(booking.userId)) {
+          await createAndSendNotification({
+            userId: booking.userId,
+            title: `New message from ${booking.providerName} for Booking #${booking.trackingId}`,
+            message: message.trim(),
+            type: 'chat',
+            bookingId: booking._id
+          });
+        }
+
+        res.json({
+          success: true,
+          message: chatMsg,
+          conversation
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 3. Provider Inbox: List all booking conversations assigned to this provider
+    app.get('/api/chat/provider/conversations', auth, async (req, res) => {
+      try {
+        const providerUser = await User.findById(req.userId);
+        const providerName = providerUser?.name || '';
+
+        // Find conversations matching providerId or providerName
+        const conversations = await ChatConversation.find({
+          $or: [
+            { providerId: req.userId },
+            ...(providerName ? [{ providerName }] : [])
+          ]
+        }).sort({ lastMessageAt: -1 });
+
+        res.json(conversations);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 4. Customer Inbox: List all booking conversations for this customer
+    app.get('/api/chat/customer/conversations', auth, async (req, res) => {
+      try {
+        const conversations = await ChatConversation.find({
+          customerId: req.userId
+        }).sort({ lastMessageAt: -1 });
+
+        res.json(conversations);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 5. Total unread message badge count
+    app.get('/api/chat/unread-summary', auth, async (req, res) => {
+      try {
+        let unreadCount = 0;
+        if (req.userType === 'provider') {
+          const provUser = await User.findById(req.userId);
+          const provName = provUser?.name || '';
+          const convos = await ChatConversation.find({
+            $or: [{ providerId: req.userId }, ...(provName ? [{ providerName: provName }] : [])]
+          });
+          unreadCount = convos.reduce((sum, c) => sum + (c.providerUnreadCount || 0), 0);
+        } else if (req.userType === 'customer') {
+          const convos = await ChatConversation.find({ customerId: req.userId });
+          unreadCount = convos.reduce((sum, c) => sum + (c.customerUnreadCount || 0), 0);
+        } else if (req.userType === 'admin') {
+          unreadCount = await ChatConversation.countDocuments({ customerUnreadCount: { $gt: 0 } });
+        }
+        res.json({ unreadCount });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 6. Admin Chat Audit & Inspection
+    app.get('/api/chat/admin/conversations', auth, async (req, res) => {
+      try {
+        if (req.userType !== 'admin') {
+          return res.status(403).json({ error: 'Access Denied: Admin privileges required.' });
+        }
+
+        const { search } = req.query;
+        let query = {};
+        if (search) {
+          query = {
+            $or: [
+              { bookingId: { $regex: search, $options: 'i' } },
+              { customerName: { $regex: search, $options: 'i' } },
+              { providerName: { $regex: search, $options: 'i' } },
+              { serviceType: { $regex: search, $options: 'i' } }
+            ]
+          };
+        }
+
+        const conversations = await ChatConversation.find(query).sort({ lastMessageAt: -1 }).limit(100);
+        res.json(conversations);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // 7. Admin update conversation status or extend warranty
+    app.put('/api/chat/admin/conversations/:id/status', auth, async (req, res) => {
+      try {
+        if (req.userType !== 'admin') {
+          return res.status(403).json({ error: 'Access Denied: Admin privileges required.' });
+        }
+
+        const { status, isReadOnly, extendDays } = req.body;
+        const convo = await ChatConversation.findById(req.params.id);
+        if (!convo) return res.status(404).json({ error: 'Conversation not found' });
+
+        if (status) convo.status = status;
+        if (isReadOnly !== undefined) convo.isReadOnly = isReadOnly;
+        if (extendDays) {
+          convo.warrantyChatExpiresAt = new Date(Date.now() + extendDays * 24 * 60 * 60 * 1000);
+          convo.isReadOnly = false;
+        }
+
+        await convo.save();
+        res.json({ success: true, conversation: convo });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+
     // Seed Marketplace if empty
     const shopsCount = await PartnerShop.countDocuments();
     if (shopsCount === 0) {
@@ -3351,8 +4970,36 @@ mongoose.connect(MONGODB_URI)
       console.log(`🌱 Materials Marketplace seeded: ${seededShops.length} shops, ${seededProducts.length} products, ${inventorySeeds.length} stock listings.`);
     }
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`🚀 Express server running on port ${PORT}`);
+    });
+
+    server.on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.warn(`\n⚠️  Port ${PORT} is already in use. Attempting to free it...\n`);
+        // Kill the process occupying the port, then retry after 1 second
+        import('child_process').then(({ execSync }) => {
+          try {
+            // Windows: find PID using port and kill it
+            const result = execSync(
+              `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${PORT}') do @taskkill /PID %a /F`,
+              { shell: 'cmd.exe', stdio: 'pipe' }
+            );
+            console.log('✅ Old process killed. Restarting in 1 second...');
+          } catch (e) {
+            console.log('Could not auto-kill. Retrying...');
+          }
+          setTimeout(() => {
+            server.close();
+            app.listen(PORT, () => {
+              console.log(`🚀 Express server running on port ${PORT} (retry)`);
+            });
+          }, 1200);
+        });
+      } else {
+        console.error('❌ Server error:', err);
+        process.exit(1);
+      }
     });
   })
   .catch(err => {

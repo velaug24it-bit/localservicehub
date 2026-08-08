@@ -6,6 +6,9 @@ import { toast } from '@/hooks/use-toast';
 import ProviderProfileTab from '@/components/provider/ProviderProfileTab';
 import ProviderCalendar from '@/components/provider/ProviderCalendar';
 import ProviderPricingTab from '@/components/provider/ProviderPricingTab';
+import ProviderBusinessCenter from '@/components/provider/ProviderBusinessCenter';
+import ProviderChatInbox from '@/components/provider/ProviderChatInbox';
+import BookingChatModal from '@/components/chat/BookingChatModal';
 import NotificationBell from '@/components/NotificationBell';
 import Footer from '@/components/Footer';
 import { trackingSteps } from '@/data/providers';
@@ -62,16 +65,30 @@ const ProviderDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<ProviderBooking[]>([]);
-  const [activeTab, setActiveTab] = useState<'bookings' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription' | 'pricing'>('bookings');
+  const [activeTab, setActiveTab] = useState<'bookings' | 'messages' | 'business' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription' | 'pricing'>('bookings');
   const [openMaterialsId, setOpenMaterialsId] = useState<string | null>(null);
+  const [activeChatBookingId, setActiveChatBookingId] = useState<string | null>(null);
+  const [unreadMsgCount, setUnreadMsgCount] = useState<number>(0);
   const [filter, setFilter] = useState<'all' | 'Confirmed' | 'In Progress' | 'Completed' | 'Cancelled'>('all');
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
+
+  const fetchUnreadCount = async () => {
+    try {
+      const res = await api.chat.getUnreadSummary();
+      if (res && typeof res.unreadCount === 'number') {
+        setUnreadMsgCount(res.unreadCount);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     if (user) {
       fetchProviderBookings();
       fetchBillingStatus();
+      fetchUnreadCount();
+      const interval = setInterval(fetchUnreadCount, 5000);
+      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -451,16 +468,39 @@ const ProviderDashboard = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-3xl overflow-x-auto no-scrollbar">
-          {(['bookings', 'queue', 'calendar', 'earnings', 'pricing', 'profile', 'subscription'] as const).map(tab => (
+        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-5xl overflow-x-auto no-scrollbar">
+          {(['bookings', 'messages', 'business', 'queue', 'calendar', 'earnings', 'pricing', 'profile', 'subscription'] as const).map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2.5 rounded-md text-sm font-semibold capitalize transition-all whitespace-nowrap px-3 ${
+              className={`flex-1 py-2.5 rounded-md text-sm font-semibold capitalize transition-all whitespace-nowrap px-3 flex items-center justify-center gap-1.5 ${
                 activeTab === tab ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'
               }`}>
-              {tab === 'queue' ? 'Queue' : tab === 'subscription' ? 'Subscription 💳' : tab === 'calendar' ? '📅 Calendar' : tab === 'pricing' ? '💰 Pricing' : tab}
+              {tab === 'messages' ? (
+                <>
+                  <span>💬 Messages</span>
+                  {unreadMsgCount > 0 && (
+                    <span className="bg-destructive text-destructive-foreground text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse">
+                      {unreadMsgCount}
+                    </span>
+                  )}
+                </>
+              ) : tab === 'business' ? '📊 Business Center 💼' : tab === 'queue' ? 'Queue' : tab === 'subscription' ? 'Subscription 💳' : tab === 'calendar' ? '📅 Calendar' : tab === 'pricing' ? '💰 Pricing' : tab}
             </button>
           ))}
         </div>
+
+        {/* Messages Tab (Booking Chats) */}
+        {activeTab === 'messages' && (
+          <div>
+            <ProviderChatInbox />
+          </div>
+        )}
+
+        {/* Business Center Tab */}
+        {activeTab === 'business' && (
+          <div>
+            <ProviderBusinessCenter />
+          </div>
+        )}
 
         {/* Bookings Tab */}
         {activeTab === 'bookings' && (
@@ -621,13 +661,21 @@ const ProviderDashboard = () => {
                           );
                         })()}
 
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2 pt-1 border-t border-border/40">
+                          <button
+                            type="button"
+                            onClick={() => setActiveChatBookingId(b.tracking_id || b.id)}
+                            className="px-3.5 py-1.5 rounded-xl gradient-primary text-primary-foreground text-xs font-bold shadow-sm hover:opacity-90 transition-all flex items-center gap-1.5 active:scale-95"
+                          >
+                            <span>💬 Open Customer Chat</span>
+                          </button>
+
                           <button onClick={() => updateBookingStatus(b.id, 'In Progress', 1)}
-                            className="px-3 py-1.5 rounded-lg bg-warning/10 text-warning text-xs font-semibold hover:bg-warning/20 transition-colors">
+                            className="px-3 py-1.5 rounded-xl bg-warning/10 text-warning text-xs font-semibold hover:bg-warning/20 transition-colors">
                             ▶ Start Job
                           </button>
                           <button onClick={() => updateBookingStatus(b.id, 'Cancelled', -1)}
-                            className="px-3 py-1.5 rounded-lg bg-destructive/10 text-destructive text-xs font-semibold hover:bg-destructive/20 transition-colors">
+                            className="px-3 py-1.5 rounded-xl bg-destructive/10 text-destructive text-xs font-semibold hover:bg-destructive/20 transition-colors">
                             ✖ Cancel
                           </button>
                         </div>
@@ -925,6 +973,18 @@ const ProviderDashboard = () => {
           </div>
         )}
       </div>
+
+      {/* Booking Chat Modal */}
+      {activeChatBookingId && (
+        <BookingChatModal
+          bookingId={activeChatBookingId}
+          onClose={() => {
+            setActiveChatBookingId(null);
+            fetchUnreadCount();
+          }}
+        />
+      )}
+
       <Footer />
     </div>
   );

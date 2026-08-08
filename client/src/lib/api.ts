@@ -15,11 +15,20 @@ async function request(endpoint: string, options: RequestInit = {}) {
     }
   });
 
-  const data = await res.json();
+  const contentType = res.headers.get('content-type') || '';
   if (!res.ok) {
-    throw new Error(data.error || 'Request failed');
+    let errMsg = `Request failed with status ${res.status}`;
+    if (contentType.includes('application/json')) {
+      const errData = await res.json().catch(() => ({}));
+      errMsg = errData.error || errData.message || errMsg;
+    }
+    throw new Error(errMsg);
   }
-  return data;
+
+  if (contentType.includes('application/json')) {
+    return await res.json();
+  }
+  return await res.text();
 }
 
 export const api = {
@@ -118,7 +127,8 @@ export const api = {
     providers: {
       list: () => request('/api/admin/providers'),
       approve: (id: string, approved: boolean) =>
-        request(`/api/admin/providers/${id}/approve`, { method: 'PUT', body: JSON.stringify({ approved }) })
+        request(`/api/admin/providers/${id}/approve`, { method: 'PUT', body: JSON.stringify({ approved }) }),
+      getActivityHistory: (id: string) => request(`/api/admin/providers/${id}/activity-history`)
     },
     payments: {
       list: () => request('/api/admin/payments'),
@@ -181,6 +191,60 @@ export const api = {
       analytics: {
         get: () => request('/api/admin/marketplace/analytics')
       }
+    },
+    retention: {
+      getOverview: () => request('/api/admin/retention/overview'),
+      getWarrantyClaims: () => request('/api/admin/retention/warranty-claims'),
+      updateWarrantyClaim: (id: string, data: any) => request(`/api/admin/retention/warranty-claims/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      getRules: () => request('/api/admin/retention/rules'),
+      updateRules: (data: any) => request('/api/admin/retention/rules', { method: 'PUT', body: JSON.stringify(data) }),
+      getPayoutRequests: () => request('/api/admin/retention/payout-requests'),
+      updatePayoutRequest: (id: string, data: any) => request(`/api/admin/retention/payout-requests/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+      getTopProviders: () => request('/api/admin/retention/top-providers'),
+      awardTopProviderBonus: (data: { providerId: string; bonusAmount: number; bonusTitle?: string; rank?: number }) => 
+        request('/api/admin/retention/award-top-provider-bonus', { method: 'POST', body: JSON.stringify(data) })
     }
+  },
+  customerRetention: {
+    getSummary: () => request('/api/customer/retention-summary'),
+    getWarranties: () => request('/api/warranties'),
+    claimWarranty: (id: string, issueDescription: string) => request(`/api/warranties/${id}/claim`, { method: 'POST', body: JSON.stringify({ issueDescription }) }),
+    getWallet: () => request('/api/wallet'),
+    topupWallet: (amount: number, description?: string) => request('/api/wallet/topup', { method: 'POST', body: JSON.stringify({ amount, description }) }),
+    redeemWallet: (amount: number, bookingId?: string, description?: string) => request('/api/wallet/redeem', { method: 'POST', body: JSON.stringify({ amount, bookingId, description }) }),
+    getRewards: () => request('/api/rewards'),
+    redeemRewards: (pointsToRedeem: number) => request('/api/rewards/redeem', { method: 'POST', body: JSON.stringify({ pointsToRedeem }) }),
+    getMembershipPlans: () => request('/api/memberships/plans'),
+    subscribeMembership: (planType: string) => request('/api/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planType }) }),
+    getRebookingPayload: (bookingId: string) => request(`/api/customer/rebooking/${bookingId}`)
+  },
+  providerBusiness: {
+    getAnalytics: () => request('/api/provider-business/analytics'),
+    getReputation: () => request('/api/provider-business/reputation'),
+    getLevels: () => request('/api/provider-business/levels'),
+    getReports: () => request('/api/provider-business/reports'),
+    getWallet: () => request('/api/provider-business/wallet'),
+    withdraw: (amount: number, upiId?: string) => request('/api/provider-business/wallet/withdraw', { method: 'POST', body: JSON.stringify({ amount, upiId }) }),
+    getInsights: () => request('/api/provider-business/insights'),
+    getMarketplaceBenefits: () => request('/api/provider-business/marketplace-benefits'),
+    getTraining: () => request('/api/provider-business/training'),
+    completeCourse: (courseId: string) => request(`/api/provider-business/training/${courseId}/complete`, { method: 'POST' })
+  },
+  chat: {
+    getBookingChat: (bookingId: string) => 
+      request(`/api/chat/booking/${bookingId}`),
+    sendMessage: (bookingId: string, data: { message: string; messageType?: string; mediaUrl?: string }) => 
+      request(`/api/chat/booking/${bookingId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
+    getProviderConversations: () => 
+      request('/api/chat/provider/conversations'),
+    getCustomerConversations: () => 
+      request('/api/chat/customer/conversations'),
+    getUnreadSummary: () => 
+      request('/api/chat/unread-summary'),
+    getAdminConversations: (search?: string) => 
+      request(`/api/chat/admin/conversations${search ? `?search=${encodeURIComponent(search)}` : ''}`),
+    updateAdminConversation: (id: string, data: { status?: string; isReadOnly?: boolean; extendDays?: number }) => 
+      request(`/api/chat/admin/conversations/${id}/status`, { method: 'PUT', body: JSON.stringify(data) })
   }
 };
+

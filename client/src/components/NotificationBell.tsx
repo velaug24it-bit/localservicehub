@@ -3,10 +3,12 @@ import { createPortal } from 'react-dom';
 import { Bell, Trash2, X, Eye } from 'lucide-react';
 import { useNotifications, Notification } from '@/hooks/useNotifications';
 import { formatDistanceToNow } from 'date-fns';
+import BookingChatModal from './chat/BookingChatModal';
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [activeDetail, setActiveDetail] = useState<Notification | null>(null);
+  const [chatBookingId, setChatBookingId] = useState<string | null>(null);
   const { items, unreadCount, markAllRead, markRead, clearAll, pushEnabled, togglePush } = useNotifications();
   const ref = useRef<HTMLDivElement>(null);
 
@@ -152,9 +154,24 @@ export default function NotificationBell() {
               <div className="p-4 bg-muted/40 border border-border rounded-xl">
                 <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{activeDetail.message}</p>
               </div>
+
+              {activeDetail.bookingId && (
+                <button
+                  onClick={() => {
+                    const bId = activeDetail.bookingId;
+                    setActiveDetail(null);
+                    setOpen(false);
+                    setChatBookingId(bId);
+                  }}
+                  className="w-full py-2.5 gradient-primary text-primary-foreground rounded-xl text-sm font-bold shadow-md hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
+                >
+                  <span>💬 Open Booking Chat</span>
+                </button>
+              )}
+
               <button 
                 onClick={() => setActiveDetail(null)}
-                className="w-full py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
+                className="w-full py-2.5 bg-muted border border-border text-foreground rounded-xl text-sm font-semibold hover:bg-muted/80 transition-colors"
               >
                 Dismiss
               </button>
@@ -162,6 +179,13 @@ export default function NotificationBell() {
           </div>
         </div>,
         document.body
+      )}
+
+      {chatBookingId && (
+        <BookingChatModal
+          bookingId={chatBookingId}
+          onClose={() => setChatBookingId(null)}
+        />
       )}
     </div>
   );
