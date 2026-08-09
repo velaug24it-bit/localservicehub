@@ -4,6 +4,7 @@ import { toast } from '@/hooks/use-toast';
 import { ShieldCheck, Award, Wallet, CheckCircle, Clock, AlertCircle, Save, Send } from 'lucide-react';
 
 import BookingChatModal from '../chat/BookingChatModal';
+import AdminWarrantyClaimsTab from './AdminWarrantyClaimsTab';
 
 export default function AdminRetentionTab() {
   const [subTab, setSubTab] = useState<'overview' | 'top_providers' | 'warranties' | 'rewards' | 'payouts' | 'chats'>('overview');
@@ -336,65 +337,7 @@ export default function AdminRetentionTab() {
 
           {/* ── SUB TAB 2: WARRANTY CLAIMS ── */}
           {subTab === 'warranties' && (
-            <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-              <div className="px-6 py-4 border-b border-border font-bold text-xs uppercase text-muted-foreground">
-                Customer Warranty Claims & Free Rework Inspection Dispatch
-              </div>
-              <div className="divide-y divide-border/60">
-                {claims.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-10">No warranty claims submitted yet.</p>
-                ) : (
-                  claims.map(w => {
-                    const lastClaim = w.claims?.[w.claims.length - 1];
-                    return (
-                      <div key={w.id || w._id} className="p-5 space-y-3 hover:bg-muted/20 transition-colors">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div>
-                            <span className="text-xs font-bold text-foreground">{w.serviceName} ({w.warrantyNumber})</span>
-                            <p className="text-xs text-muted-foreground">
-                              Customer: <strong>{w.customerName}</strong> ({w.customerPhone}) · Specialist: <strong>{w.providerName}</strong>
-                            </p>
-                          </div>
-                          <span className="text-xs font-extrabold bg-amber-500/10 text-amber-500 px-3 py-1 rounded-full border border-amber-500/20 self-start sm:self-auto">
-                            Claim Status: {lastClaim?.status || 'Pending'}
-                          </span>
-                        </div>
-
-                        <div className="bg-muted/40 p-3 rounded-xl border border-border/50 text-xs">
-                          <strong>Defect Reported:</strong> "{lastClaim?.issueDescription}"
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
-                          <input
-                            type="text"
-                            placeholder="Resolution notes / Specialist dispatch details..."
-                            value={claimNotes[w.id || w._id] !== undefined ? claimNotes[w.id || w._id] : (lastClaim?.resolutionNotes || '')}
-                            onChange={e => setClaimNotes({ ...claimNotes, [w.id || w._id]: e.target.value })}
-                            className="flex-1 px-3 py-2 bg-muted border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                          />
-                          <select
-                            value={claimStatus[w.id || w._id] || lastClaim?.status || 'Specialist Assigned'}
-                            onChange={e => setClaimStatus({ ...claimStatus, [w.id || w._id]: e.target.value })}
-                            className="px-3 py-2 bg-muted border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                          >
-                            <option value="Specialist Assigned">Specialist Assigned</option>
-                            <option value="Approved">Approved</option>
-                            <option value="Resolved">Resolved (Rework Done)</option>
-                            <option value="Rejected">Rejected</option>
-                          </select>
-                          <button
-                            onClick={() => handleUpdateClaim(w.id || w._id)}
-                            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
-                          >
-                            Update Claim
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+            <AdminWarrantyClaimsTab />
           )}
 
           {/* ── SUB TAB 3: REWARD & EMERGENCY RULES ── */}

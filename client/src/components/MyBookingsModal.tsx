@@ -7,6 +7,8 @@ import BookingChatModal from './chat/BookingChatModal';
 import { providers, Provider } from '@/data/providers';
 import { api } from '@/lib/api';
 import { toast } from '@/hooks/use-toast';
+import AgreementSignModal from './agreements/AgreementSignModal';
+import AgreementViewModal from './agreements/AgreementViewModal';
 
 interface MyBookingsModalProps {
   onClose: () => void;
@@ -256,6 +258,47 @@ const loadRazorpayScript = () => {
 
   const [payingBookingId, setPayingBookingId] = useState<string | null>(null);
   const [activeChatBooking, setActiveChatBooking] = useState<Booking | null>(null);
+  const [signingAgreement, setSigningAgreement] = useState<any>(null);
+  const [viewingAgreement, setViewingAgreement] = useState<any>(null);
+  const [agreementsMap, setAgreementsMap] = useState<{ [bookingId: string]: any }>({});
+
+  useEffect(() => {
+    const fetchAgreements = async () => {
+      try {
+        const myAgrs = await api.agreements.getMy();
+        const map: { [key: string]: any } = {};
+        myAgrs.forEach((a: any) => {
+          if (a.bookingId) map[a.bookingId] = a;
+        });
+        setAgreementsMap(map);
+      } catch (_) {}
+    };
+    fetchAgreements();
+  }, []);
+
+  const handleOpenAgreementForBooking = async (b: Booking) => {
+    const existing = agreementsMap[b.id];
+    if (existing) {
+      if (existing.status === 'PENDING_SIGNATURE') {
+        setSigningAgreement(existing);
+      } else {
+        setViewingAgreement(existing);
+      }
+      return;
+    }
+
+    try {
+      const res = await api.agreements.create({ bookingId: b.id });
+      setAgreementsMap(prev => ({ ...prev, [b.id]: res }));
+      setSigningAgreement(res);
+    } catch (err: any) {
+      toast({
+        title: 'Agreement Error',
+        description: err.message,
+        variant: 'destructive'
+      });
+    }
+  };
 
   const handleRazorpayPayBooking = async (b: Booking) => {
     setPayingBookingId(b.id);
@@ -574,6 +617,16 @@ const loadRazorpayScript = () => {
                     <span>📞 Support: 9840994649</span>
                   </a>
 
+                  {b.status === 'Completed' && (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAgreementForBooking(b)}
+                      className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <span>🛡️ {agreementsMap[b.id]?.status === 'ACTIVE' ? 'View Agreement' : 'Activate 12-Mo Agreement'}</span>
+                    </button>
+                  )}
+
                   {b.status !== 'Cancelled' && b.status !== 'Completed' && (
                     <>
                       <button onClick={() => setTrackingBooking(b)} className="px-3 py-1.5 rounded-xl bg-primary/10 text-primary text-xs font-bold hover:bg-primary/20 transition-colors">
@@ -591,6 +644,28 @@ const loadRazorpayScript = () => {
           })}
         </div>
       </div>
+
+      {/* Agreement Sign Modal */}
+      {signingAgreement && (
+        <AgreementSignModal
+          agreement={signingAgreement}
+          isOpen={!!signingAgreement}
+          onClose={() => setSigningAgreement(null)}
+          onSignedSuccess={(updated) => {
+            setAgreementsMap(prev => ({ ...prev, [updated.bookingId]: updated }));
+            setSigningAgreement(null);
+          }}
+        />
+      )}
+
+      {/* Agreement View Certificate Modal */}
+      {viewingAgreement && (
+        <AgreementViewModal
+          agreement={viewingAgreement}
+          isOpen={!!viewingAgreement}
+          onClose={() => setViewingAgreement(null)}
+        />
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import { UserCheck, ShieldAlert, CreditCard, Users, LogOut, CheckCircle, XCircle
 import AdminServiceCatalogTab from '@/components/admin/AdminServiceCatalogTab';
 import AdminMarketplaceTab from '@/components/admin/AdminMarketplaceTab';
 import AdminRetentionTab from '@/components/admin/AdminRetentionTab';
+import AdminAgreementsTab from '@/components/admin/AdminAgreementsTab';
+import AdminWarrantyClaimsTab from '@/components/admin/AdminWarrantyClaimsTab';
 import ProviderActivityHistoryModal from '@/components/admin/ProviderActivityHistoryModal';
 import Footer from '@/components/Footer';
 
@@ -63,12 +65,13 @@ interface DailyPayoutRecord {
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'providers' | 'payments' | 'catalog' | 'marketplace' | 'retention'>('providers');
+  const [activeTab, setActiveTab] = useState<'providers' | 'warranties' | 'payments' | 'catalog' | 'marketplace' | 'retention' | 'agreements'>('providers');
   const [paymentSubTab, setPaymentSubTab] = useState<'dailyPayouts' | 'transactions'>('dailyPayouts');
   const [payoutModelFilter, setPayoutModelFilter] = useState<'all' | 'commission' | 'subscription'>('all');
   const [providers, setProviders] = useState<ProviderProfile[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [dailyPayouts, setDailyPayouts] = useState<DailyPayoutRecord[]>([]);
+  const [pendingWarranties, setPendingWarranties] = useState<number>(0);
   const [selectedProviderHistoryId, setSelectedProviderHistoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -83,12 +86,20 @@ export default function AdminDashboard() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const providerList = await api.admin.providers.list();
-      const paymentList = await api.admin.payments.list();
-      const dailyList = await api.admin.payments.getDailyPayouts();
-      setProviders(providerList);
-      setPayments(paymentList);
-      setDailyPayouts(dailyList);
+      const [providerList, paymentList, dailyList, warrantyList] = await Promise.all([
+        api.admin.providers.list().catch(() => []),
+        api.admin.payments.list().catch(() => []),
+        api.admin.payments.getDailyPayouts().catch(() => []),
+        api.admin.retention.getWarrantyClaims().catch(() => [])
+      ]);
+      setProviders(providerList || []);
+      setPayments(paymentList || []);
+      setDailyPayouts(dailyList || []);
+      const pendingClaims = (warrantyList || []).filter((w: any) => {
+        const last = w.claims?.[w.claims.length - 1];
+        return !last?.status || last?.status === 'Pending';
+      }).length;
+      setPendingWarranties(pendingClaims);
     } catch (err: any) {
       toast({ title: 'Failed to load data', description: err.message, variant: 'destructive' });
     } finally {
@@ -243,10 +254,12 @@ export default function AdminDashboard() {
         <div className="flex border-b border-border overflow-x-auto no-scrollbar">
           {([
             { key: 'providers', label: '👷 Provider Profiles', badge: pendingProviders },
+            { key: 'warranties', label: '🛡️ Warranty Claims & Rework', badge: pendingWarranties },
             { key: 'payments', label: '💰 Daily Payouts & Ledger', badge: 0 },
+            { key: 'agreements', label: '📜 Agreements & Dispatch', badge: 0 },
             { key: 'catalog', label: '📋 Service Catalog', badge: 0 },
             { key: 'marketplace', label: '🏪 Materials Marketplace', badge: 0 },
-            { key: 'retention', label: '🛡️ Retention & Rules', badge: 0 },
+            { key: 'retention', label: '⚙️ Retention & Rules', badge: 0 },
           ] as const).map(tab => (
             <button
               key={tab.key}
@@ -615,6 +628,20 @@ export default function AdminDashboard() {
             <div className="p-6">
               <AdminRetentionTab />
             </div>
+          </div>
+        )}
+
+        {/* ── WARRANTY CLAIMS & REWORK TAB ── */}
+        {activeTab === 'warranties' && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm p-6">
+            <AdminWarrantyClaimsTab />
+          </div>
+        )}
+
+        {/* ── AGREEMENTS & DISPATCH TAB ── */}
+        {activeTab === 'agreements' && (
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm p-6">
+            <AdminAgreementsTab />
           </div>
         )}
 

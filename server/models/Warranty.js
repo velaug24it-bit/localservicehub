@@ -29,7 +29,8 @@ const WarrantySchema = new mongoose.Schema({
   startDate: { type: Date, default: Date.now },
   durationDays: { type: Number, default: 90 }, // Standard 90 days protection
   expiryDate: { type: Date, required: true },
-  status: { type: String, enum: ['Active', 'Claimed', 'Expired'], default: 'Active' },
+  status: { type: String, enum: ['Active', 'Claimed', 'Expired', 'Fulfilled', 'Claimed & Resolved'], default: 'Active' },
+  isUsed: { type: Boolean, default: false },
   coverageTerms: { 
     type: String, 
     default: '100% Free rework on workmanship defects, leakage warranty, and certified spare part performance.' 

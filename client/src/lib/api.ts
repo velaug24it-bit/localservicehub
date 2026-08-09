@@ -216,6 +216,21 @@ export const api = {
     redeemRewards: (pointsToRedeem: number) => request('/api/rewards/redeem', { method: 'POST', body: JSON.stringify({ pointsToRedeem }) }),
     getMembershipPlans: () => request('/api/memberships/plans'),
     subscribeMembership: (planType: string) => request('/api/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planType }) }),
+    withdrawWallet: (amount: number, upiId: string) => request('/api/wallet/withdraw', { method: 'POST', body: JSON.stringify({ amount, upiId }) }),
+    getRebookingPayload: (bookingId: string) => request(`/api/customer/rebooking/${bookingId}`)
+  },
+  retention: {
+    getCustomerRetention: () => request('/api/customer/retention-summary'),
+    getWarranties: () => request('/api/warranties'),
+    claimWarranty: (id: string, issueDescription: string) => request(`/api/warranties/${id}/claim`, { method: 'POST', body: JSON.stringify({ issueDescription }) }),
+    getWallet: () => request('/api/wallet'),
+    topupWallet: (amount: number, description?: string) => request('/api/wallet/topup', { method: 'POST', body: JSON.stringify({ amount, description }) }),
+    redeemWallet: (amount: number, bookingId?: string, description?: string) => request('/api/wallet/redeem', { method: 'POST', body: JSON.stringify({ amount, bookingId, description }) }),
+    withdrawWallet: (amount: number, upiId: string) => request('/api/wallet/withdraw', { method: 'POST', body: JSON.stringify({ amount, upiId }) }),
+    getRewards: () => request('/api/rewards'),
+    redeemRewardPoints: (pointsToRedeem: number) => request('/api/rewards/redeem', { method: 'POST', body: JSON.stringify({ pointsToRedeem }) }),
+    getMembershipPlans: () => request('/api/memberships/plans'),
+    subscribeMembership: (planType: string) => request('/api/memberships/subscribe', { method: 'POST', body: JSON.stringify({ planType }) }),
     getRebookingPayload: (bookingId: string) => request(`/api/customer/rebooking/${bookingId}`)
   },
   providerBusiness: {
@@ -229,6 +244,12 @@ export const api = {
     getMarketplaceBenefits: () => request('/api/provider-business/marketplace-benefits'),
     getTraining: () => request('/api/provider-business/training'),
     completeCourse: (courseId: string) => request(`/api/provider-business/training/${courseId}/complete`, { method: 'POST' })
+  },
+  providerWarranty: {
+    list: () => request('/api/provider/warranty-claims'),
+    resolve: (id: string, resolutionNotes?: string) => request(`/api/provider/warranty-claims/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolutionNotes }) }),
+    getByBooking: (bookingId: string) => request(`/api/provider/bookings/${bookingId}/warranty`),
+    setBookingWarranty: (bookingId: string, data: { durationDays: number; coverageTerms?: string }) => request(`/api/provider/bookings/${bookingId}/set-warranty`, { method: 'POST', body: JSON.stringify(data) })
   },
   chat: {
     getBookingChat: (bookingId: string) => 
@@ -245,6 +266,55 @@ export const api = {
       request(`/api/chat/admin/conversations${search ? `?search=${encodeURIComponent(search)}` : ''}`),
     updateAdminConversation: (id: string, data: { status?: string; isReadOnly?: boolean; extendDays?: number }) => 
       request(`/api/chat/admin/conversations/${id}/status`, { method: 'PUT', body: JSON.stringify(data) })
+  },
+  aiCoach: {
+    getCoachData: () => request('/api/provider-business/ai-coach'),
+    getGoals: () => request('/api/provider-business/goals'),
+    saveGoals: (data: { monthlyRevenueTarget?: number; monthlyBookingTarget?: number; ratingTarget?: number; repeatCustomerTarget?: number }) =>
+      request('/api/provider-business/goals', { method: 'POST', body: JSON.stringify(data) })
+  },
+  agreements: {
+    create: (data: { bookingId: string }) => 
+      request('/api/agreements', { method: 'POST', body: JSON.stringify(data) }),
+    getMy: () => 
+      request('/api/agreements/my'),
+    get: (id: string) => 
+      request(`/api/agreements/${id}`),
+    sign: (id: string, data: { fullName: string; signatureType: 'drawn' | 'typed'; signatureData: string; consent: boolean }) => 
+      request(`/api/agreements/${id}/sign`, { method: 'POST', body: JSON.stringify(data) }),
+    createServiceRequest: (id: string, data: { description: string; attachments?: string[] }) => 
+      request(`/api/agreements/${id}/service-requests`, { method: 'POST', body: JSON.stringify(data) }),
+    getServiceRequests: (id: string) => 
+      request(`/api/agreements/${id}/service-requests`),
+    confirmCompletion: (requestId: string) => 
+      request(`/api/agreement-service-requests/${requestId}/customer-confirm`, { method: 'POST' })
+  },
+  agreementAdmin: {
+    listAgreements: () => 
+      request('/api/admin/agreements'),
+    listTemplates: () => 
+      request('/api/admin/agreement-templates'),
+    createTemplate: (data: any) => 
+      request('/api/admin/agreement-templates', { method: 'POST', body: JSON.stringify(data) }),
+    updateTemplate: (id: string, data: any) => 
+      request(`/api/admin/agreement-templates/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    listServiceRequests: () => 
+      request('/api/admin/agreement-service-requests'),
+    assignProvider: (requestId: string, data: { providerId: string }) => 
+      request(`/api/admin/agreement-service-requests/${requestId}/assign`, { method: 'POST', body: JSON.stringify(data) }),
+    updateAgreementStatus: (id: string, status: string) => 
+      request(`/api/admin/agreements/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) })
+  },
+  agreementProvider: {
+    listRequests: () => 
+      request('/api/provider/agreement-service-requests'),
+    acceptRequest: (requestId: string) => 
+      request(`/api/provider/agreement-service-requests/${requestId}/accept`, { method: 'POST' }),
+    declineRequest: (requestId: string, reason?: string) => 
+      request(`/api/provider/agreement-service-requests/${requestId}/decline`, { method: 'POST', body: JSON.stringify({ reason }) }),
+    updateStatus: (requestId: string, status: string) => 
+      request(`/api/provider/agreement-service-requests/${requestId}/update-status`, { method: 'POST', body: JSON.stringify({ status }) })
   }
 };
+
 

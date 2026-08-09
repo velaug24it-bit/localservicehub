@@ -9,10 +9,11 @@ import {
 
 interface BookingChatModalProps {
   bookingId: string; // trackingId or Mongo _id
+  isOpen?: boolean;
   onClose: () => void;
 }
 
-export default function BookingChatModal({ bookingId, onClose }: BookingChatModalProps) {
+export default function BookingChatModal({ bookingId, isOpen, onClose }: BookingChatModalProps) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);

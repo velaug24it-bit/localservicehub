@@ -43,6 +43,12 @@ import ProviderCertificate from './models/ProviderCertificate.js';
 import ChatConversation from './models/ChatConversation.js';
 import ChatMessage from './models/ChatMessage.js';
 import MarketplaceOrder from './models/MarketplaceOrder.js';
+import ServiceAgreement from './models/ServiceAgreement.js';
+import AgreementTemplate from './models/AgreementTemplate.js';
+import AgreementSignature from './models/AgreementSignature.js';
+import AgreementServiceRequest from './models/AgreementServiceRequest.js';
+import GrowthGoal from './models/GrowthGoal.js';
+import AgreementAuditLog from './models/AgreementAuditLog.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +63,14 @@ const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/servic
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught Exception:', err);
+});
+process.on('unhandledRejection', (reason, promise) => {
+  console.warn('⚠️ Unhandled Promise Rejection:', reason);
+});
+
+
 // ── GLOBAL HELPER FUNCTIONS ──
 async function getOrCreateCustomerWallet(userId, userName = '') {
   let wallet = await CustomerWallet.findOne({ userId });
@@ -64,19 +78,19 @@ async function getOrCreateCustomerWallet(userId, userName = '') {
     const refCode = `SH-${(userId || 'CUST').toString().slice(-5).toUpperCase()}`;
     wallet = new CustomerWallet({
       userId,
-      balance: 50,
-      cashbackBalance: 25,
-      promoCredits: 25,
-      rewardPoints: 50,
+      balance: 100,
+      cashbackBalance: 0,
+      promoCredits: 100,
+      rewardPoints: 100,
       referralCode: refCode,
-      totalEarned: 50,
+      totalEarned: 100,
       totalSpent: 0,
       transactions: [
         {
           id: `WT-${Date.now()}`,
           type: 'promo_credit',
-          amount: 50,
-          description: 'Welcome to ServiceHub! Initial promotional loyalty credits credited.',
+          amount: 100,
+          description: 'Welcome to ServiceHub! Promotional loyalty credits credited.',
           date: new Date()
         }
       ]
@@ -236,19 +250,32 @@ async function getOrCreateProviderLevel(providerId) {
   return pLevel;
 }
 
-async function createOrUpdateWarrantyForBooking(booking) {
+async function createOrUpdateWarrantyForBooking(booking, customDays, customTerms) {
   try {
-    const existing = await Warranty.findOne({ bookingId: booking.id || booking._id });
-    if (existing) return existing;
-
-    const membership = await CustomerMembership.findOne({ userId: booking.userId });
-    let durationDays = 90;
-    if (membership && membership.planType === 'silver') durationDays = 120;
-    if (membership && membership.planType === 'gold') durationDays = 180;
-    if (membership && membership.planType === 'platinum') durationDays = 365;
-
+    const existing = await Warranty.findOne({
+      $or: [
+        { bookingId: booking.id || booking._id },
+        { trackingId: booking.trackingId }
+      ]
+    });
+    const durationDays = customDays || existing?.durationDays || 30;
+    const startDate = new Date();
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + durationDays);
+
+    const terms = customTerms || `100% Free rework guarantee for ${durationDays} days covering workmanship, quality check, and spare parts performance.`;
+
+    if (existing) {
+      if (customDays) {
+        existing.durationDays = durationDays;
+        existing.startDate = startDate;
+        existing.expiryDate = expiryDate;
+        existing.coverageTerms = terms;
+        existing.status = 'Active';
+        await existing.save();
+      }
+      return existing;
+    }
 
     const wrnNumber = `SH-WRN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
     const warranty = new Warranty({
@@ -263,11 +290,11 @@ async function createOrUpdateWarrantyForBooking(booking) {
       serviceName: booking.serviceType || 'Home Service',
       category: booking.category || 'General',
       serviceAmount: booking.priceBreakdown?.subtotal || 500,
-      startDate: new Date(),
+      startDate,
       durationDays,
       expiryDate,
       status: 'Active',
-      coverageTerms: `100% Free rework guarantee for ${durationDays} days covering workmanship, leakage, and certified spare parts performance.`
+      coverageTerms: terms
     });
     await warranty.save();
     return warranty;
@@ -1120,7 +1147,7 @@ app.put('/api/bookings/:id', auth, async (req, res) => {
     if (status === 'Completed') {
       try {
         await getOrCreateProviderWallet(booking.providerId, booking.providerName);
-        await createOrUpdateWarrantyForBooking(booking);
+        await createOrUpdateWarrantyForBooking(booking, req.body.warrantyDays, req.body.coverageTerms);
       } catch (e) {
         console.error('Completed booking sync error:', e);
       }
@@ -3128,7 +3155,877 @@ app.delete('/api/admin/service-catalog/work-types/:id', auth, adminOnly, async (
 });
 
 
-// Serve React build static assets in production
+// ══════════════════════════════════════════════════════════════════════════
+// ══ AI BUSINESS COACH + SERVICE AGREEMENT ROUTES ═════════════════════════
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── AI BUSINESS COACH: Real data-driven insights ──
+app.get('/api/provider-business/ai-coach', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+    const providerId = req.userId;
+
+    // Gather real data
+    const allBookings = await Booking.find({
+      $or: [{ providerId }, { providerId: providerId.toString() }, { providerName: user.name }]
+    }).sort({ createdAt: -1 });
+
+    const reviews = await Review.find({ providerId });
+    const now = new Date();
+    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const last6Months = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+
+    const completedBookings = allBookings.filter(b => b.status === 'Completed');
+    const cancelledBookings = allBookings.filter(b => b.status === 'Cancelled');
+    const thisMonthBookings = allBookings.filter(b => new Date(b.createdAt) >= thisMonth);
+    const lastMonthBookings = allBookings.filter(b => {
+      const d = new Date(b.createdAt);
+      return d >= lastMonth && d < thisMonth;
+    });
+    const thisMonthCompleted = completedBookings.filter(b => new Date(b.createdAt) >= thisMonth);
+    const lastMonthCompleted = completedBookings.filter(b => {
+      const d = new Date(b.createdAt);
+      return d >= lastMonth && d < thisMonth;
+    });
+
+    // Revenue calculation
+    const getRevenue = (bookings) => bookings.reduce((sum, b) => {
+      const raw = b.priceBreakdown?.subtotal || (typeof b.price === 'number' ? b.price : parseInt(String(b.price || 0).replace(/[^\d]/g, ''), 10)) || 0;
+      return sum + raw;
+    }, 0);
+    const totalRevenue = getRevenue(completedBookings);
+    const thisMonthRevenue = getRevenue(thisMonthCompleted);
+    const lastMonthRevenue = getRevenue(lastMonthCompleted);
+
+    // Revenue trend (last 6 months)
+    const revenueTrend = [];
+    for (let i = 5; i >= 0; i--) {
+      const m = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const mEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+      const monthBookings = completedBookings.filter(b => {
+        const d = new Date(b.createdAt);
+        return d >= m && d < mEnd;
+      });
+      revenueTrend.push({
+        month: m.toLocaleString('default', { month: 'short', year: 'numeric' }),
+        revenue: getRevenue(monthBookings),
+        bookings: monthBookings.length
+      });
+    }
+
+    // Top services
+    const serviceCounts = {};
+    completedBookings.forEach(b => {
+      serviceCounts[b.serviceType] = (serviceCounts[b.serviceType] || 0) + 1;
+    });
+    const topServices = Object.entries(serviceCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    // Repeat customers
+    const customerCounts = {};
+    completedBookings.forEach(b => {
+      customerCounts[b.userId] = (customerCounts[b.userId] || 0) + 1;
+    });
+    const repeatCustomers = Object.values(customerCounts).filter(c => c > 1).length;
+    const totalCustomers = Object.keys(customerCounts).length;
+
+    // Peak booking periods (day of week)
+    const dayCount = [0, 0, 0, 0, 0, 0, 0];
+    allBookings.forEach(b => {
+      const d = new Date(b.createdAt);
+      dayCount[d.getDay()]++;
+    });
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const peakDay = dayNames[dayCount.indexOf(Math.max(...dayCount))];
+
+    // Average rating
+    const avgRating = reviews.length > 0
+      ? +(reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
+      : null;
+
+    // Business Health Score (0-100)
+    let healthScore = 0;
+    if (completedBookings.length > 0) healthScore += 20;
+    if (completedBookings.length >= 5) healthScore += 10;
+    if (completedBookings.length >= 20) healthScore += 10;
+    if (avgRating !== null && avgRating >= 4.0) healthScore += 15;
+    if (avgRating !== null && avgRating >= 4.5) healthScore += 5;
+    if (cancelledBookings.length === 0) healthScore += 10;
+    else if (cancelledBookings.length / allBookings.length < 0.1) healthScore += 5;
+    if (repeatCustomers > 0) healthScore += 10;
+    if (repeatCustomers >= 3) healthScore += 5;
+    if (thisMonthRevenue > lastMonthRevenue) healthScore += 10;
+    if (reviews.length >= 3) healthScore += 5;
+    healthScore = Math.min(100, healthScore);
+
+    // Growth recommendations (real data driven)
+    const recommendations = [];
+    if (allBookings.length === 0) {
+      recommendations.push({ type: 'info', text: 'Start accepting bookings to build your profile and earn milestone points.' });
+    } else {
+      if (topServices.length > 0) {
+        recommendations.push({ type: 'insight', text: `Your most booked service is "${topServices[0].name}" with ${topServices[0].count} completed jobs.` });
+      }
+      const weekendBookings = allBookings.filter(b => {
+        const d = new Date(b.createdAt);
+        return d.getDay() === 0 || d.getDay() === 6;
+      });
+      if (weekendBookings.length > allBookings.length * 0.4) {
+        recommendations.push({ type: 'insight', text: 'Your weekend demand is higher than weekday demand. Consider prioritizing weekend availability.' });
+      }
+      if (repeatCustomers > 0) {
+        recommendations.push({ type: 'positive', text: `You have ${repeatCustomers} repeat customer${repeatCustomers > 1 ? 's' : ''}. Great job building loyalty!` });
+      }
+      if (thisMonthRevenue > lastMonthRevenue && lastMonthRevenue > 0) {
+        const growthPct = Math.round(((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100);
+        recommendations.push({ type: 'positive', text: `Your revenue grew ${growthPct}% compared to last month. Keep it up!` });
+      }
+      if (thisMonthRevenue < lastMonthRevenue && lastMonthRevenue > 0) {
+        recommendations.push({ type: 'warning', text: 'Revenue is lower than last month. Consider expanding your availability or offering promotions.' });
+      }
+      if (avgRating !== null && avgRating < 4.0) {
+        recommendations.push({ type: 'warning', text: `Your average rating is ${avgRating}. Focus on quality to improve customer satisfaction.` });
+      }
+      if (cancelledBookings.length > 0) {
+        const rate = Math.round((cancelledBookings.length / allBookings.length) * 100);
+        recommendations.push({ type: rate > 15 ? 'warning' : 'info', text: `Your cancellation rate is ${rate}%. ${rate > 15 ? 'Try to reduce cancellations.' : 'This is within acceptable range.'}` });
+      }
+      recommendations.push({ type: 'tip', text: `Your peak booking day is ${peakDay}. Ensure maximum availability on this day.` });
+    }
+
+    // Get goals
+    const goal = await GrowthGoal.findOne({
+      providerId,
+      month: now.getMonth() + 1,
+      year: now.getFullYear()
+    });
+
+    res.json({
+      hasData: allBookings.length > 0,
+      healthScore,
+      totalBookings: allBookings.length,
+      completedBookings: completedBookings.length,
+      cancelledBookings: cancelledBookings.length,
+      cancellationRate: allBookings.length > 0 ? +(cancelledBookings.length / allBookings.length * 100).toFixed(1) : 0,
+      totalRevenue,
+      thisMonthRevenue,
+      lastMonthRevenue,
+      revenueTrend,
+      topServices,
+      avgRating,
+      totalReviews: reviews.length,
+      repeatCustomers,
+      totalCustomers,
+      repeatCustomerRate: totalCustomers > 0 ? +(repeatCustomers / totalCustomers * 100).toFixed(1) : 0,
+      peakDay,
+      peakDayBookings: dayCount,
+      recommendations,
+      goals: goal || null,
+      thisMonthBookings: thisMonthBookings.length,
+      lastMonthBookings: lastMonthBookings.length
+    });
+  } catch (err) {
+    console.error('AI Coach error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Provider Goals CRUD ──
+app.get('/api/provider-business/goals', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const goal = await GrowthGoal.findOne({
+      providerId: req.userId,
+      month: now.getMonth() + 1,
+      year: now.getFullYear()
+    });
+    res.json(goal || { monthlyRevenueTarget: 0, monthlyBookingTarget: 0, ratingTarget: 0, repeatCustomerTarget: 0 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/provider-business/goals', auth, async (req, res) => {
+  try {
+    const now = new Date();
+    const { monthlyRevenueTarget, monthlyBookingTarget, ratingTarget, repeatCustomerTarget } = req.body;
+    const goal = await GrowthGoal.findOneAndUpdate(
+      { providerId: req.userId, month: now.getMonth() + 1, year: now.getFullYear() },
+      { monthlyRevenueTarget, monthlyBookingTarget, ratingTarget, repeatCustomerTarget },
+      { upsert: true, new: true }
+    );
+    res.json(goal);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════
+// ── SERVICE AGREEMENT: Customer Routes ───────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+// Create agreement from completed booking
+app.post('/api/agreements', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'customer') return res.status(403).json({ error: 'Customer access required' });
+
+    const { bookingId } = req.body;
+    let booking = null;
+    if (bookingId && mongoose.Types.ObjectId.isValid(bookingId)) {
+      booking = await Booking.findById(bookingId);
+    }
+    if (!booking && bookingId) {
+      booking = await Booking.findOne({ $or: [{ trackingId: bookingId }, { id: bookingId }] });
+    }
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.userId && booking.userId !== req.userId) return res.status(403).json({ error: 'Not your booking' });
+
+    // Check if agreement already exists for this booking
+    const bookingIdentifier = booking.id || booking._id.toString();
+    const existing = await ServiceAgreement.findOne({ 
+      $or: [{ bookingId: bookingIdentifier }, { trackingId: booking.trackingId }] 
+    });
+    if (existing) {
+      return res.status(200).json(existing);
+    }
+
+
+    // Find matching template or use default
+    let template = await AgreementTemplate.findOne({ serviceCategory: booking.category, status: 'active' });
+    if (!template) template = await AgreementTemplate.findOne({ isDefault: true, status: 'active' });
+
+    const durationMonths = template?.durationMonths || 12;
+    const templateSnapshot = template ? {
+      name: template.name,
+      terms: template.terms,
+      coveredServices: template.coveredServices,
+      excludedServices: template.excludedServices,
+      warrantyRules: template.warrantyRules,
+      cancellationRules: template.cancellationRules,
+      renewalRules: template.renewalRules,
+      customerObligations: template.customerObligations,
+      providerObligations: template.providerObligations,
+      platformRole: template.platformRole,
+      paymentModel: template.paymentModel
+    } : {
+      name: 'ServiceHub Standard Service Agreement',
+      terms: 'This agreement covers future service requests for the same service category. All service requests are subject to provider availability and admin assignment. The customer may request service at any time during the agreement period.',
+      coveredServices: [booking.serviceType],
+      excludedServices: [],
+      warrantyRules: 'Standard ServiceHub warranty applies to each completed service.',
+      cancellationRules: 'Either party may cancel with 7 days written notice. No penalty for cancellation.',
+      renewalRules: 'Agreement may be renewed upon mutual consent before expiry.',
+      customerObligations: 'Provide accurate service details and maintain reasonable access for service delivery.',
+      providerObligations: 'Deliver quality service within agreed timelines and maintain professional standards.',
+      platformRole: 'ServiceHub facilitates matching, communication, and dispute resolution between parties.',
+      paymentModel: 'additional_charge'
+    };
+
+    const agreementCount = await ServiceAgreement.countDocuments();
+    const agreementId = `AGR-${String(agreementCount + 1).padStart(6, '0')}`;
+
+    const agreement = new ServiceAgreement({
+      agreementId,
+      bookingId: booking.id || booking._id.toString(),
+      trackingId: booking.trackingId || '',
+      customerId: req.userId,
+      customerName: user.name,
+      customerEmail: user.email,
+      customerPhone: user.phone || booking.phone || '',
+      providerId: booking.providerId,
+      providerName: booking.providerName,
+      serviceType: booking.serviceType,
+      category: booking.category,
+      location: booking.location || user.location || '',
+      templateId: template?._id?.toString() || '',
+      templateVersion: template?.version || 1,
+      templateSnapshot,
+      durationMonths,
+      status: 'PENDING_SIGNATURE'
+    });
+    await agreement.save();
+
+    await AgreementAuditLog.create({
+      agreementId,
+      action: 'created',
+      performedBy: req.userId,
+      performedByRole: 'customer',
+      details: { bookingId: booking.id || booking._id.toString(), serviceType: booking.serviceType }
+    });
+
+    res.status(201).json(agreement);
+  } catch (err) {
+    console.error('Create agreement error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List customer's agreements
+app.get('/api/agreements/my', auth, async (req, res) => {
+  try {
+    const agreements = await ServiceAgreement.find({ customerId: req.userId }).sort({ createdAt: -1 });
+    // Auto-expire
+    const now = new Date();
+    for (const a of agreements) {
+      if (a.status === 'ACTIVE' && a.endDate && new Date(a.endDate) < now) {
+        a.status = 'EXPIRED';
+        await a.save();
+      }
+    }
+    res.json(agreements);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get agreement details
+app.get('/api/agreements/:id', auth, async (req, res) => {
+  try {
+    const agreement = await ServiceAgreement.findOne({ agreementId: req.params.id });
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+    const user = await User.findById(req.userId);
+    // Authorization: customer owner, assigned provider, or admin
+    if (user.userType === 'customer' && agreement.customerId !== req.userId) {
+      return res.status(403).json({ error: 'Not your agreement' });
+    }
+    if (user.userType === 'provider' && agreement.providerId !== req.userId) {
+      return res.status(403).json({ error: 'Not assigned to you' });
+    }
+    // Get signature if exists
+    const signature = await AgreementSignature.findOne({ agreementId: agreement.agreementId });
+    // Get service requests
+    const serviceRequests = await AgreementServiceRequest.find({ agreementId: agreement.agreementId }).sort({ createdAt: -1 });
+    res.json({ agreement, signature: signature ? { fullName: signature.fullName, signatureType: signature.signatureType, signedAt: signature.signedAt, consent: signature.consent } : null, serviceRequests });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Sign agreement
+app.post('/api/agreements/:id/sign', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'customer') return res.status(403).json({ error: 'Customer access required' });
+
+    const agreement = await ServiceAgreement.findOne({ agreementId: req.params.id });
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+    if (agreement.customerId !== req.userId) return res.status(403).json({ error: 'Not your agreement' });
+    if (agreement.status !== 'PENDING_SIGNATURE') return res.status(400).json({ error: `Agreement is ${agreement.status}, cannot sign` });
+
+    const { fullName, signatureType, signatureData, consent } = req.body;
+    if (!fullName || !signatureType || !signatureData || !consent) {
+      return res.status(400).json({ error: 'Missing required signature fields' });
+    }
+
+    // Save signature
+    const sig = new AgreementSignature({
+      agreementId: agreement.agreementId,
+      customerId: req.userId,
+      signatureType,
+      signatureData,
+      fullName,
+      consent: true,
+      signedAt: new Date(),
+      auditMetadata: {
+        userAgent: req.headers['user-agent'] || '',
+        agreementVersion: agreement.templateVersion
+      }
+    });
+    await sig.save();
+
+    // Activate agreement
+    const startDate = new Date();
+    const endDate = new Date();
+    endDate.setMonth(endDate.getMonth() + agreement.durationMonths);
+
+    agreement.status = 'ACTIVE';
+    agreement.signedAt = startDate;
+    agreement.startDate = startDate;
+    agreement.endDate = endDate;
+    await agreement.save();
+
+    await AgreementAuditLog.create({
+      agreementId: agreement.agreementId,
+      action: 'signed',
+      performedBy: req.userId,
+      performedByRole: 'customer',
+      details: { fullName, signatureType }
+    });
+
+    // Notification to customer
+    await Notification.create({
+      userId: req.userId,
+      title: 'Agreement Activated',
+      message: `Your service agreement ${agreement.agreementId} for ${agreement.serviceType} has been activated.`,
+      type: 'agreement',
+      link: agreement.agreementId
+    });
+    // Notification to provider
+    await Notification.create({
+      userId: agreement.providerId,
+      title: 'New Service Agreement',
+      message: `${user.name} has signed a service agreement (${agreement.agreementId}) for ${agreement.serviceType}.`,
+      type: 'agreement',
+      link: agreement.agreementId
+    });
+
+    res.json({ success: true, agreement });
+  } catch (err) {
+    console.error('Sign agreement error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create service request under agreement ("Service Needed")
+app.post('/api/agreements/:id/service-requests', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'customer') return res.status(403).json({ error: 'Customer access required' });
+
+    const agreement = await ServiceAgreement.findOne({ agreementId: req.params.id });
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+    if (agreement.customerId !== req.userId) return res.status(403).json({ error: 'Not your agreement' });
+    if (agreement.status !== 'ACTIVE') return res.status(400).json({ error: 'Agreement is not active' });
+    if (agreement.endDate && new Date(agreement.endDate) < new Date()) {
+      agreement.status = 'EXPIRED';
+      await agreement.save();
+      return res.status(400).json({ error: 'Agreement has expired' });
+    }
+
+    const { description, attachments } = req.body;
+    if (!description || description.trim().length === 0) {
+      return res.status(400).json({ error: 'Please describe the service needed' });
+    }
+
+    const reqCount = await AgreementServiceRequest.countDocuments();
+    const requestId = `SR-${String(reqCount + 1).padStart(6, '0')}`;
+
+    const serviceRequest = new AgreementServiceRequest({
+      requestId,
+      agreementId: agreement.agreementId,
+      originalBookingId: agreement.bookingId,
+      customerId: req.userId,
+      customerName: user.name,
+      customerPhone: user.phone || '',
+      originalProviderId: agreement.providerId,
+      originalProviderName: agreement.providerName,
+      serviceType: agreement.serviceType,
+      category: agreement.category,
+      location: agreement.location || user.location || '',
+      description: description.trim(),
+      attachments: attachments || [],
+      status: 'PENDING_ADMIN_ASSIGNMENT',
+      paymentRequired: agreement.templateSnapshot?.paymentModel !== 'covered'
+    });
+    await serviceRequest.save();
+
+    agreement.serviceRequestCount = (agreement.serviceRequestCount || 0) + 1;
+    await agreement.save();
+
+    await AgreementAuditLog.create({
+      agreementId: agreement.agreementId,
+      serviceRequestId: requestId,
+      action: 'created',
+      performedBy: req.userId,
+      performedByRole: 'customer',
+      details: { description: description.trim() }
+    });
+
+    // Notify admins
+    const admins = await User.find({ userType: 'admin' });
+    for (const admin of admins) {
+      await Notification.create({
+        userId: admin._id.toString(),
+        title: 'New Agreement Service Request',
+        message: `${user.name} requested service under agreement ${agreement.agreementId}: ${description.substring(0, 80)}`,
+        type: 'agreement_request',
+        link: requestId
+      });
+    }
+
+    // Notify customer
+    await Notification.create({
+      userId: req.userId,
+      title: 'Service Request Submitted',
+      message: `Your service request ${requestId} has been submitted. ServiceHub will assign a provider shortly.`,
+      type: 'agreement_request',
+      link: requestId
+    });
+
+    res.status(201).json(serviceRequest);
+  } catch (err) {
+    console.error('Create service request error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List service requests for an agreement
+app.get('/api/agreements/:id/service-requests', auth, async (req, res) => {
+  try {
+    const agreement = await ServiceAgreement.findOne({ agreementId: req.params.id });
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+    const user = await User.findById(req.userId);
+    if (user.userType === 'customer' && agreement.customerId !== req.userId) return res.status(403).json({ error: 'Not your agreement' });
+    if (user.userType === 'provider' && agreement.providerId !== req.userId) return res.status(403).json({ error: 'Not assigned to you' });
+    const requests = await AgreementServiceRequest.find({ agreementId: req.params.id }).sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Customer confirms service completion
+app.post('/api/agreement-service-requests/:id/customer-confirm', auth, async (req, res) => {
+  try {
+    const sr = await AgreementServiceRequest.findOne({ requestId: req.params.id });
+    if (!sr) return res.status(404).json({ error: 'Service request not found' });
+    if (sr.customerId !== req.userId) return res.status(403).json({ error: 'Not your request' });
+    if (sr.status !== 'SERVICE_COMPLETED') return res.status(400).json({ error: `Cannot confirm in status ${sr.status}` });
+
+    sr.status = 'COMPLETED';
+    sr.completedAt = new Date();
+    await sr.save();
+
+    await AgreementAuditLog.create({
+      agreementId: sr.agreementId,
+      serviceRequestId: sr.requestId,
+      action: 'completed',
+      performedBy: req.userId,
+      performedByRole: 'customer'
+    });
+
+    if (sr.assignedProviderId) {
+      await Notification.create({
+        userId: sr.assignedProviderId,
+        title: 'Service Confirmed Complete',
+        message: `Customer confirmed completion of service request ${sr.requestId}.`,
+        type: 'agreement_request'
+      });
+    }
+
+    res.json({ success: true, serviceRequest: sr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════
+// ── SERVICE AGREEMENT: Admin Routes ──────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+// List all agreements
+app.get('/api/admin/agreements', auth, adminOnly, async (req, res) => {
+  try {
+    const agreements = await ServiceAgreement.find().sort({ createdAt: -1 });
+    res.json(agreements);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Agreement templates CRUD
+app.get('/api/admin/agreement-templates', auth, adminOnly, async (req, res) => {
+  try {
+    const templates = await AgreementTemplate.find().sort({ createdAt: -1 });
+    res.json(templates);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/agreement-templates', auth, adminOnly, async (req, res) => {
+  try {
+    const template = new AgreementTemplate(req.body);
+    await template.save();
+    res.status(201).json(template);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/admin/agreement-templates/:id', auth, adminOnly, async (req, res) => {
+  try {
+    // Create new version instead of overwriting
+    const existing = await AgreementTemplate.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Template not found' });
+    const updates = { ...req.body };
+    if (Object.keys(updates).some(k => ['terms', 'coveredServices', 'excludedServices', 'warrantyRules', 'cancellationRules', 'renewalRules'].includes(k))) {
+      updates.version = (existing.version || 1) + 1;
+    }
+    const template = await AgreementTemplate.findByIdAndUpdate(req.params.id, updates, { new: true });
+    res.json(template);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List pending service requests (admin)
+app.get('/api/admin/agreement-service-requests', auth, adminOnly, async (req, res) => {
+  try {
+    const requests = await AgreementServiceRequest.find().sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Assign provider to service request
+app.post('/api/admin/agreement-service-requests/:id/assign', auth, adminOnly, async (req, res) => {
+  try {
+    const { providerId } = req.body;
+    const sr = await AgreementServiceRequest.findOne({ requestId: req.params.id });
+    if (!sr) return res.status(404).json({ error: 'Service request not found' });
+    if (!['PENDING_ADMIN_ASSIGNMENT', 'PROVIDER_DECLINED'].includes(sr.status)) {
+      return res.status(400).json({ error: `Cannot assign in status ${sr.status}` });
+    }
+
+    const provider = await User.findById(providerId);
+    if (!provider || provider.userType !== 'provider') return res.status(404).json({ error: 'Provider not found' });
+
+    sr.assignedProviderId = providerId;
+    sr.assignedProviderName = provider.name;
+    sr.status = 'PROVIDER_ASSIGNED';
+    sr.assignedAt = new Date();
+    await sr.save();
+
+    await AgreementAuditLog.create({
+      agreementId: sr.agreementId,
+      serviceRequestId: sr.requestId,
+      action: 'assigned',
+      performedBy: req.userId,
+      performedByRole: 'admin',
+      details: { providerId, providerName: provider.name }
+    });
+
+    // Create chat conversation for this service request
+    const chatConv = new ChatConversation({
+      bookingId: sr.requestId,
+      customerId: sr.customerId,
+      customerName: sr.customerName,
+      providerId: providerId,
+      providerName: provider.name,
+      serviceType: sr.serviceType,
+      category: sr.category,
+      lastMessage: `Service request ${sr.requestId} — provider assigned.`,
+      lastMessageSenderRole: 'system',
+      status: 'open'
+    });
+    await chatConv.save();
+    sr.chatConversationId = chatConv._id.toString();
+    await sr.save();
+
+    // Notify provider
+    await Notification.create({
+      userId: providerId,
+      title: 'New Agreement Service Request',
+      message: `Admin assigned service request ${sr.requestId} (${sr.serviceType}) from ${sr.customerName}.`,
+      type: 'agreement_request',
+      link: sr.requestId
+    });
+
+    // Notify customer
+    await Notification.create({
+      userId: sr.customerId,
+      title: 'Provider Assigned',
+      message: `${provider.name} has been assigned to your service request ${sr.requestId}.`,
+      type: 'agreement_request',
+      link: sr.requestId
+    });
+
+    res.json({ success: true, serviceRequest: sr });
+  } catch (err) {
+    console.error('Admin assign error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin update agreement status
+app.put('/api/admin/agreements/:id/status', auth, adminOnly, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const agreement = await ServiceAgreement.findOne({ agreementId: req.params.id });
+    if (!agreement) return res.status(404).json({ error: 'Agreement not found' });
+    const validStatuses = ['CANCELLED', 'EXPIRED'];
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status transition' });
+    agreement.status = status;
+    await agreement.save();
+
+    await AgreementAuditLog.create({
+      agreementId: agreement.agreementId,
+      action: 'status_change',
+      performedBy: req.userId,
+      performedByRole: 'admin',
+      details: { newStatus: status }
+    });
+
+    res.json({ success: true, agreement });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════
+// ── SERVICE AGREEMENT: Provider Routes ───────────────────────────────
+// ══════════════════════════════════════════════════════════════════════
+
+// List assigned service requests
+app.get('/api/provider/agreement-service-requests', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+    const requests = await AgreementServiceRequest.find({
+      assignedProviderId: req.userId,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] }
+    }).sort({ createdAt: -1 });
+    res.json(requests);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Provider accepts request
+app.post('/api/provider/agreement-service-requests/:id/accept', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+
+    const sr = await AgreementServiceRequest.findOne({ requestId: req.params.id });
+    if (!sr) return res.status(404).json({ error: 'Service request not found' });
+    if (sr.assignedProviderId !== req.userId) return res.status(403).json({ error: 'Not assigned to you' });
+    if (sr.status !== 'PROVIDER_ASSIGNED') return res.status(400).json({ error: `Cannot accept in status ${sr.status}` });
+
+    sr.status = 'PROVIDER_ACCEPTED';
+    sr.acceptedAt = new Date();
+    await sr.save();
+
+    await AgreementAuditLog.create({
+      agreementId: sr.agreementId,
+      serviceRequestId: sr.requestId,
+      action: 'accepted',
+      performedBy: req.userId,
+      performedByRole: 'provider'
+    });
+
+    await Notification.create({
+      userId: sr.customerId,
+      title: 'Provider Accepted',
+      message: `${user.name} accepted your service request ${sr.requestId}.`,
+      type: 'agreement_request'
+    });
+
+    res.json({ success: true, serviceRequest: sr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Provider declines request
+app.post('/api/provider/agreement-service-requests/:id/decline', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+
+    const sr = await AgreementServiceRequest.findOne({ requestId: req.params.id });
+    if (!sr) return res.status(404).json({ error: 'Service request not found' });
+    if (sr.assignedProviderId !== req.userId) return res.status(403).json({ error: 'Not assigned to you' });
+    if (sr.status !== 'PROVIDER_ASSIGNED') return res.status(400).json({ error: `Cannot decline in status ${sr.status}` });
+
+    sr.status = 'PROVIDER_DECLINED';
+    sr.providerNotes = req.body.reason || '';
+    await sr.save();
+
+    await AgreementAuditLog.create({
+      agreementId: sr.agreementId,
+      serviceRequestId: sr.requestId,
+      action: 'declined',
+      performedBy: req.userId,
+      performedByRole: 'provider',
+      details: { reason: req.body.reason || '' }
+    });
+
+    // Notify admins to reassign
+    const admins = await User.find({ userType: 'admin' });
+    for (const admin of admins) {
+      await Notification.create({
+        userId: admin._id.toString(),
+        title: 'Provider Declined Request',
+        message: `${user.name} declined service request ${sr.requestId}. Reassignment needed.`,
+        type: 'agreement_request'
+      });
+    }
+
+    await Notification.create({
+      userId: sr.customerId,
+      title: 'Provider Update',
+      message: `The assigned provider declined your request ${sr.requestId}. Admin will reassign a new provider.`,
+      type: 'agreement_request'
+    });
+
+    res.json({ success: true, serviceRequest: sr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Provider updates service status
+app.post('/api/provider/agreement-service-requests/:id/update-status', auth, async (req, res) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user || user.userType !== 'provider') return res.status(403).json({ error: 'Provider access required' });
+
+    const sr = await AgreementServiceRequest.findOne({ requestId: req.params.id });
+    if (!sr) return res.status(404).json({ error: 'Service request not found' });
+    if (sr.assignedProviderId !== req.userId) return res.status(403).json({ error: 'Not assigned to you' });
+
+    const { status } = req.body;
+    const allowedTransitions = {
+      'PROVIDER_ACCEPTED': ['SERVICE_IN_PROGRESS'],
+      'SERVICE_IN_PROGRESS': ['SERVICE_COMPLETED']
+    };
+    if (!allowedTransitions[sr.status]?.includes(status)) {
+      return res.status(400).json({ error: `Cannot transition from ${sr.status} to ${status}` });
+    }
+
+    sr.status = status;
+    await sr.save();
+
+    await AgreementAuditLog.create({
+      agreementId: sr.agreementId,
+      serviceRequestId: sr.requestId,
+      action: 'status_change',
+      performedBy: req.userId,
+      performedByRole: 'provider',
+      details: { newStatus: status }
+    });
+
+    const statusMessages = {
+      'SERVICE_IN_PROGRESS': `${user.name} has started working on your service request ${sr.requestId}.`,
+      'SERVICE_COMPLETED': `${user.name} has completed the service for request ${sr.requestId}. Please confirm completion.`
+    };
+
+    await Notification.create({
+      userId: sr.customerId,
+      title: status === 'SERVICE_COMPLETED' ? 'Service Completed' : 'Service Update',
+      message: statusMessages[status] || `Service request ${sr.requestId} status updated to ${status}.`,
+      type: 'agreement_request'
+    });
+
+    res.json({ success: true, serviceRequest: sr });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '../client/dist');
   if (fs.existsSync(path.join(distPath, 'index.html'))) {
@@ -3583,7 +4480,9 @@ mongoose.connect(MONGODB_URI)
             transactions: wallet.transactions
           },
           membership,
-          activeWarranties: warranties.filter(w => w.status === 'Active'),
+          activeWarranties: warranties.filter(w => w.status === 'Active' && !w.isUsed && (!w.claims || !w.claims.some(c => c.status === 'Resolved' || c.status === 'Pending' || c.status === 'Specialist Assigned'))),
+          claimedWarranties: warranties.filter(w => w.status === 'Claimed' || (w.claims && w.claims.some(c => c.status === 'Pending' || c.status === 'Specialist Assigned'))),
+          fulfilledWarranties: warranties.filter(w => w.status === 'Fulfilled' || w.isUsed || (w.claims && w.claims.some(c => c.status === 'Resolved'))),
           allWarranties: warranties,
           serviceHistory: allBookings,
           rules: rule
@@ -3614,6 +4513,10 @@ mongoose.connect(MONGODB_URI)
         const warranty = await Warranty.findOne({ _id: req.params.id, userId: req.userId });
         if (!warranty) {
           return res.status(404).json({ error: 'Warranty not found' });
+        }
+
+        if (warranty.status === 'Fulfilled' || warranty.isUsed || (warranty.claims && warranty.claims.some(c => c.status === 'Resolved'))) {
+          return res.status(400).json({ error: 'This warranty protection claim has already been used and fulfilled.' });
         }
 
         const newClaim = {
@@ -3704,6 +4607,55 @@ mongoose.connect(MONGODB_URI)
         res.status(500).json({ error: err.message });
       }
     });
+
+    app.post('/api/wallet/withdraw', auth, async (req, res) => {
+      try {
+        const { amount, upiId } = req.body;
+        const withdrawAmt = Math.max(0, parseInt(amount) || 0);
+        if (withdrawAmt <= 0) {
+          return res.status(400).json({ error: 'Please enter a valid withdrawal amount' });
+        }
+        if (!upiId || !upiId.trim() || !upiId.includes('@')) {
+          return res.status(400).json({ error: 'Please enter a valid UPI ID (e.g. name@okhdfcbank or 9840994649@paytm)' });
+        }
+
+        const wallet = await getOrCreateCustomerWallet(req.userId);
+        if (withdrawAmt > wallet.balance) {
+          return res.status(400).json({ error: `Insufficient wallet balance. Available balance: ₹${wallet.balance}` });
+        }
+
+        wallet.balance -= withdrawAmt;
+        wallet.totalSpent += withdrawAmt;
+        const txId = `WT-${Date.now()}`;
+        wallet.transactions.unshift({
+          id: txId,
+          type: 'withdrawal',
+          amount: withdrawAmt,
+          description: `Transferred ₹${withdrawAmt} to bank account via UPI (${upiId.trim()})`,
+          date: new Date()
+        });
+        await wallet.save();
+
+        await createAndSendNotification({
+          userId: req.userId,
+          title: '💸 Wallet Withdrawal Processed',
+          message: `₹${withdrawAmt} has been deposited to your account (${upiId.trim()}). Transaction Ref: ${txId}`,
+          type: 'wallet_withdrawal'
+        });
+
+        res.json({
+          success: true,
+          newBalance: wallet.balance,
+          withdrawnAmount: withdrawAmt,
+          upiId: upiId.trim(),
+          transactionId: txId,
+          wallet
+        });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
 
     // 5. Reward Points API
     app.get('/api/rewards', auth, async (req, res) => {
@@ -4207,24 +5159,198 @@ mongoose.connect(MONGODB_URI)
 
     app.put('/api/admin/retention/warranty-claims/:id', auth, async (req, res) => {
       try {
-        const { status, resolutionNotes, assignedProviderName } = req.body;
+        const { status, resolutionNotes, assignedProviderId, assignedProviderName } = req.body;
         const warranty = await Warranty.findById(req.params.id);
         if (!warranty) return res.status(404).json({ error: 'Warranty not found' });
+
+        const targetProviderId = assignedProviderId || warranty.providerId;
+        const targetProviderName = assignedProviderName || warranty.providerName;
 
         if (warranty.claims.length > 0) {
           const lastClaim = warranty.claims[warranty.claims.length - 1];
           if (status) lastClaim.status = status;
           if (resolutionNotes) lastClaim.resolutionNotes = resolutionNotes;
-          if (assignedProviderName) lastClaim.assignedProviderName = assignedProviderName;
+          if (targetProviderId) lastClaim.assignedProviderId = targetProviderId;
+          if (targetProviderName) lastClaim.assignedProviderName = targetProviderName;
         }
-        if (status === 'Resolved') warranty.status = 'Active';
+
+        if (status === 'Resolved') {
+          warranty.status = 'Fulfilled';
+          warranty.isUsed = true;
+        } else if (status === 'Specialist Assigned' || status === 'Approved') {
+          warranty.status = 'Claimed';
+        }
         await warranty.save();
+
+        // Send notifications
+        if (targetProviderId) {
+          await createAndSendNotification({
+            userId: targetProviderId,
+            title: '🛡️ Warranty Rework Assigned',
+            message: `You have been assigned for zero-cost warranty rework for ${warranty.serviceName} (#${warranty.warrantyNumber}) requested by ${warranty.customerName}.`,
+            type: 'warranty_rework_assigned'
+          });
+        }
+
+        if (warranty.userId) {
+          await createAndSendNotification({
+            userId: warranty.userId,
+            title: '🛡️ Specialist Assigned for Warranty Rework',
+            message: `Specialist ${targetProviderName || 'assigned'} will inspect and resolve your rework claim for ${warranty.serviceName}.`,
+            type: 'warranty_assigned'
+          });
+        }
 
         res.json({ success: true, warranty });
       } catch (err) {
         res.status(500).json({ error: err.message });
       }
     });
+
+    // Provider Warranty Claims & Rework Dispatches
+    app.get(['/api/provider/warranty-claims', '/api/provider-business/warranty-claims', '/api/warranties/provider/claims'], auth, async (req, res) => {
+      try {
+        const user = await User.findById(req.userId);
+        const nameRegex = user?.name ? new RegExp(`^${user.name.trim()}$`, 'i') : null;
+        const query = {
+          $or: [
+            { providerId: req.userId },
+            { providerId: req.userId.toString() },
+            { 'claims.assignedProviderId': req.userId },
+            { 'claims.assignedProviderId': req.userId.toString() },
+            ...(nameRegex ? [
+              { providerName: nameRegex },
+              { 'claims.assignedProviderName': nameRegex }
+            ] : [])
+          ],
+          'claims.0': { $exists: true }
+        };
+        const claims = await Warranty.find(query).sort({ updatedAt: -1 });
+        res.json(claims);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    app.post(['/api/provider/warranty-claims/:id/resolve', '/api/provider-business/warranty-claims/:id/resolve'], auth, async (req, res) => {
+      try {
+        const { resolutionNotes } = req.body;
+        const warranty = await Warranty.findById(req.params.id);
+        if (!warranty) return res.status(404).json({ error: 'Warranty not found' });
+
+        if (warranty.claims.length > 0) {
+          const lastClaim = warranty.claims[warranty.claims.length - 1];
+          lastClaim.status = 'Resolved';
+          lastClaim.resolutionNotes = resolutionNotes || 'Warranty rework successfully inspected and resolved by specialist at zero cost.';
+        }
+        warranty.status = 'Fulfilled';
+        warranty.isUsed = true;
+        await warranty.save();
+
+        if (warranty.userId) {
+          await createAndSendNotification({
+            userId: warranty.userId,
+            title: '🛡️ Warranty Rework Completed',
+            message: `Specialist ${warranty.providerName} has completed your free warranty rework for ${warranty.serviceName}. Your warranty claim is now fulfilled and completed.`,
+            type: 'warranty_resolved',
+            bookingId: warranty.bookingId
+          });
+        }
+
+        res.json({ success: true, warranty });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // Provider get warranty for booking
+    app.get('/api/provider/bookings/:id/warranty', auth, async (req, res) => {
+      try {
+        const warranty = await Warranty.findOne({
+          $or: [
+            { bookingId: req.params.id },
+            { trackingId: req.params.id }
+          ]
+        });
+        res.json(warranty || null);
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // Provider sets/edits warranty days for a completed booking
+    app.post('/api/provider/bookings/:id/set-warranty', auth, async (req, res) => {
+      try {
+        const { durationDays, coverageTerms } = req.body;
+        const days = Math.max(1, parseInt(durationDays) || 30);
+
+        let booking = await Booking.findById(req.params.id);
+        if (!booking) {
+          booking = await Booking.findOne({ trackingId: req.params.id });
+        }
+        if (!booking) return res.status(404).json({ error: 'Booking not found' });
+
+        const startDate = new Date();
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + days);
+
+        const terms = coverageTerms || `100% Free rework guarantee for ${days} days covering workmanship, quality check, and certified spare parts performance.`;
+
+        let warranty = await Warranty.findOne({
+          $or: [
+            { bookingId: booking.id || booking._id.toString() },
+            { trackingId: booking.trackingId }
+          ]
+        });
+
+        if (warranty) {
+          warranty.durationDays = days;
+          warranty.startDate = startDate;
+          warranty.expiryDate = expiryDate;
+          warranty.status = 'Active';
+          warranty.coverageTerms = terms;
+          await warranty.save();
+        } else {
+          const wrnNumber = `SH-WRN-${Date.now().toString().slice(-6)}-${Math.floor(100 + Math.random() * 900)}`;
+          const providerUser = await User.findById(req.userId);
+          warranty = new Warranty({
+            warrantyNumber: wrnNumber,
+            bookingId: booking.id || booking._id.toString(),
+            trackingId: booking.trackingId || `SH-${Date.now()}`,
+            userId: booking.userId,
+            customerName: booking.customerName || 'Valued Customer',
+            customerPhone: booking.phone || '',
+            providerId: req.userId,
+            providerName: booking.providerName || providerUser?.name || 'Certified Specialist',
+            serviceName: booking.serviceType || 'Home Service',
+            category: booking.category || 'General',
+            serviceAmount: booking.priceBreakdown?.subtotal || 500,
+            startDate,
+            durationDays: days,
+            expiryDate,
+            status: 'Active',
+            coverageTerms: terms
+          });
+          await warranty.save();
+        }
+
+        // Send push notification to Customer
+        if (booking.userId) {
+          await createAndSendNotification({
+            userId: booking.userId,
+            title: '🛡️ Workmanship Warranty Issued!',
+            message: `Specialist ${warranty.providerName} has issued ${days}-day warranty protection for your ${warranty.serviceName} (Valid until ${expiryDate.toLocaleDateString()}).`,
+            type: 'warranty_issued',
+            bookingId: booking.id
+          });
+        }
+
+        res.json({ success: true, warranty });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
 
     // 3. Admin Retention Rules
     app.get('/api/admin/retention/rules', auth, async (req, res) => {
@@ -4970,37 +6096,24 @@ mongoose.connect(MONGODB_URI)
       console.log(`🌱 Materials Marketplace seeded: ${seededShops.length} shops, ${seededProducts.length} products, ${inventorySeeds.length} stock listings.`);
     }
 
-    const server = app.listen(PORT, () => {
-      console.log(`🚀 Express server running on port ${PORT}`);
-    });
+    const startServer = () => {
+      const server = app.listen(PORT, () => {
+        console.log(`🚀 Express server running on port ${PORT}`);
+      });
 
-    server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.warn(`\n⚠️  Port ${PORT} is already in use. Attempting to free it...\n`);
-        // Kill the process occupying the port, then retry after 1 second
-        import('child_process').then(({ execSync }) => {
-          try {
-            // Windows: find PID using port and kill it
-            const result = execSync(
-              `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${PORT}') do @taskkill /PID %a /F`,
-              { shell: 'cmd.exe', stdio: 'pipe' }
-            );
-            console.log('✅ Old process killed. Restarting in 1 second...');
-          } catch (e) {
-            console.log('Could not auto-kill. Retrying...');
-          }
-          setTimeout(() => {
-            server.close();
-            app.listen(PORT, () => {
-              console.log(`🚀 Express server running on port ${PORT} (retry)`);
-            });
-          }, 1200);
-        });
-      } else {
-        console.error('❌ Server error:', err);
-        process.exit(1);
-      }
-    });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`\n⚠️  Port ${PORT} is already in use. Retrying in 2 seconds...\n`);
+          setTimeout(startServer, 2000);
+        } else {
+          console.error('❌ Server error:', err);
+        }
+      });
+    };
+
+    startServer();
+
+
   })
   .catch(err => {
     console.error('❌ MongoDB Connection Error:', err);

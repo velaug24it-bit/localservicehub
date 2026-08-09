@@ -7,21 +7,23 @@ import {
 } from 'lucide-react';
 
 interface CustomerRetentionModalProps {
+  initialTab?: 'warranties' | 'wallet' | 'rewards' | 'history' | 'emergency';
   onClose: () => void;
   onRebook: (serviceData: any) => void;
 }
 
-export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRetentionModalProps) {
-  const [activeTab, setActiveTab] = useState<'warranties' | 'wallet' | 'rewards' | 'membership' | 'history' | 'emergency'>('warranties');
+export default function CustomerRetentionModal({ initialTab = 'warranties', onClose, onRebook }: CustomerRetentionModalProps) {
+  const [activeTab, setActiveTab] = useState<'warranties' | 'wallet' | 'rewards' | 'history' | 'emergency'>(initialTab);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<any>(null);
 
   // Search in History
   const [historySearch, setHistorySearch] = useState('');
 
-  // Top-up amount state
-  const [topupAmount, setTopupAmount] = useState('500');
-  const [topupLoading, setTopupLoading] = useState(false);
+  // Withdrawal / Transfer to UPI state
+  const [withdrawAmount, setWithdrawAmount] = useState('100');
+  const [withdrawUpiId, setWithdrawUpiId] = useState('');
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
 
   // Reward points state
   const [pointsInput, setPointsInput] = useState('100');
@@ -37,6 +39,9 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
       setLoading(true);
       const res = await api.retention.getCustomerRetention();
       setData(res);
+      if (res?.wallet?.balance && (!withdrawAmount || parseFloat(withdrawAmount) > res.wallet.balance)) {
+        setWithdrawAmount(String(Math.min(100, res.wallet.balance)));
+      }
     } catch (err: any) {
       toast({
         title: 'Error loading retention data',
@@ -52,37 +57,59 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
     loadRetentionData();
   }, []);
 
-  const handleTopup = async () => {
-    setTopupLoading(true);
+  const handleWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(withdrawAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: 'Invalid Amount', description: 'Please enter a valid amount.', variant: 'destructive' });
+      return;
+    }
+    if (amount > (data?.wallet?.balance || 0)) {
+      toast({ title: 'Insufficient Balance', description: `You only have ₹${data?.wallet?.balance || 0} in your wallet.`, variant: 'destructive' });
+      return;
+    }
+    if (!withdrawUpiId || !withdrawUpiId.includes('@')) {
+      toast({ title: 'Invalid UPI ID', description: 'Please enter a valid UPI ID (e.g. yourname@oksbi / 9876543210@paytm).', variant: 'destructive' });
+      return;
+    }
+
     try {
-      const amt = parseFloat(topupAmount);
-      if (!amt || amt <= 0) throw new Error('Enter a valid amount');
-      await api.retention.topupWallet(amt);
+      setWithdrawLoading(true);
+      const res = await api.retention.withdrawWallet(amount, withdrawUpiId.trim());
       toast({
-        title: '🎉 Wallet Top-up Successful',
-        description: `₹${amt} credited instantly to your ServiceHub wallet balance.`
+        title: '✅ Payout Deposited Successfully!',
+        description: `₹${amount} transferred to UPI: ${withdrawUpiId}. New balance: ₹${res.newBalance || 0}`
       });
+      setWithdrawUpiId('');
       loadRetentionData();
     } catch (err: any) {
       toast({
-        title: 'Top-up Failed',
-        description: err.message,
+        title: 'Withdrawal Failed',
+        description: err.message || 'Unable to process bank payout.',
         variant: 'destructive'
       });
     } finally {
-      setTopupLoading(false);
+      setWithdrawLoading(false);
     }
   };
 
   const handleRedeemPoints = async () => {
-    setRedeemingPoints(true);
+    const pts = parseInt(pointsInput);
+    if (!pts || pts <= 0) {
+      toast({ title: 'Invalid Points', description: 'Enter at least 1 point to redeem.', variant: 'destructive' });
+      return;
+    }
+    if (pts > (data?.wallet?.rewardPoints || 0)) {
+      toast({ title: 'Insufficient Points', description: `You have ${data?.wallet?.rewardPoints || 0} reward points.`, variant: 'destructive' });
+      return;
+    }
+
     try {
-      const pts = parseInt(pointsInput);
-      if (!pts || pts <= 0) throw new Error('Enter valid points');
-      await api.retention.redeemRewardPoints(pts);
+      setRedeemingPoints(true);
+      const res = await api.retention.redeemRewardPoints(pts);
       toast({
-        title: '🎁 Loyalty Points Converted',
-        description: `${pts} points redeemed for ₹${pts} wallet platform cash.`
+        title: '🎉 Points Converted to Cash!',
+        description: `Converted ${pts} pts to ₹${res.cashbackAdded} wallet cash.`
       });
       loadRetentionData();
     } catch (err: any) {
@@ -96,26 +123,14 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
     }
   };
 
-  const handleSubscribePlan = async (planType: string) => {
-    try {
-      await api.retention.subscribeMembership(planType);
-      toast({
-        title: '⭐ Membership Activated!',
-        description: `Upgraded to ${planType.toUpperCase()} Shield. Enjoy zero emergency fees & extended warranties!`
-      });
-      loadRetentionData();
-    } catch (err: any) {
-      toast({
-        title: 'Upgrade Failed',
-        description: err.message,
-        variant: 'destructive'
-      });
-    }
-  };
-
   const handleClaimSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!claimingWarranty) return;
+    if (!claimIssue.trim()) {
+      toast({ title: 'Description Required', description: 'Please describe the defect or reason for warranty rework.', variant: 'destructive' });
+      return;
+    }
+
     setClaimSubmitting(true);
     try {
       await api.retention.claimWarranty(claimingWarranty.id || claimingWarranty._id, claimIssue);
@@ -157,50 +172,10 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
     );
   });
 
-  const plans = [
-    {
-      id: 'free',
-      name: 'Free Basic Shield',
-      price: 0,
-      badge: 'Current Standard',
-      discount: '0% off',
-      warranty: '90-Day Standard Warranty',
-      features: ['Standard Booking Flow', 'Digital Invoice Records', 'In-App Support Chat']
-    },
-    {
-      id: 'silver',
-      name: 'Silver Shield',
-      price: 199,
-      badge: 'Popular',
-      discount: '5% Off Services',
-      warranty: '120-Day Extended Warranty',
-      features: ['5% Instant Bill Discount', '120-Day Workmanship Warranty', 'Priority Chat Assistance', '₹50 Monthly Wallet Cashback']
-    },
-    {
-      id: 'gold',
-      name: 'Gold Shield',
-      price: 499,
-      badge: 'Best Value',
-      discount: '10% Off Services',
-      warranty: '180-Day Double Warranty',
-      features: ['10% Instant Bill Discount', '180-Day Workmanship Warranty', 'Zero Emergency Surcharge (Save ₹150)', 'Priority SLA Dispatch', 'Dedicated Service Manager']
-    },
-    {
-      id: 'platinum',
-      name: 'Platinum Family Shield',
-      price: 999,
-      badge: 'VIP Elite',
-      discount: '15% Off Everything',
-      warranty: '365-Day Complete Annual Warranty',
-      features: ['15% Platform-Wide Discount', '1-Year Full Guarantee on Spares & Labor', 'Unlimited 24/7 Rapid 30-Min Dispatch', 'Free Annual Plumbing & Electrical Safety Inspection', 'Zero Cancellation Fees']
-    }
-  ];
-
   const tabList = [
     { id: 'warranties' as const, emoji: '🛡️', label: 'Warranties', badge: data?.activeWarranties?.length || 0 },
     { id: 'wallet' as const, emoji: '💳', label: 'Wallet', badge: `₹${data?.wallet?.balance || 0}` },
     { id: 'rewards' as const, emoji: '🎁', label: 'Rewards', badge: `${data?.wallet?.rewardPoints || 0} pts` },
-    { id: 'membership' as const, emoji: '⭐', label: 'Membership', badge: data?.membership?.planType?.toUpperCase() || 'FREE' },
     { id: 'history' as const, emoji: '📜', label: 'Service Records', badge: data?.serviceHistory?.length || 0 },
     { id: 'emergency' as const, emoji: '🚨', label: 'Emergency', badge: '30-Min' }
   ];
@@ -225,7 +200,7 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                   <span className="hidden sm:inline">Customer Benefits & Retention Hub</span>
                 </h2>
                 <span className="bg-primary/10 text-primary text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-full border border-primary/20 shrink-0">
-                  {data?.membership?.planName || 'Free Shield'}
+                  Verified Quality Shield
                 </span>
               </div>
               <p className="text-[11px] text-muted-foreground hidden md:block">
@@ -301,23 +276,29 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                     </div>
                   </div>
 
-                  {(!data?.activeWarranties || data.activeWarranties.length === 0) ? (
+                  {(!data?.allWarranties || data.allWarranties.length === 0) ? (
                     <div className="p-8 sm:p-12 text-center border border-dashed border-border rounded-2xl space-y-2 sm:space-y-3">
                       <ShieldCheck className="w-8 h-8 sm:w-10 sm:h-10 text-muted-foreground mx-auto opacity-40" />
                       <h4 className="font-bold text-sm sm:text-base text-foreground">No Active Warranties Yet</h4>
                       <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                        Once your service specialist completes a booking, your official 90-day digital warranty certificate will automatically appear here.
+                        Once your service specialist completes a booking, your official digital warranty certificate will automatically appear here.
                       </p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                      {data.activeWarranties.map((w: any) => {
+                      {data.allWarranties.map((w: any) => {
                         const daysLeft = Math.max(0, Math.ceil((new Date(w.expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
                         const totalDays = w.durationDays || 90;
                         const pct = Math.min(100, Math.round((daysLeft / totalDays) * 100));
 
+                        const lastClaim = w.claims?.[w.claims.length - 1];
+                        const isFulfilled = w.status === 'Fulfilled' || w.isUsed || lastClaim?.status === 'Resolved';
+                        const isClaimPending = w.status === 'Claimed' || lastClaim?.status === 'Pending' || lastClaim?.status === 'Specialist Assigned';
+
                         return (
-                          <div key={w.id || w._id} className="bg-card border border-border rounded-2xl p-4 sm:p-5 shadow-sm space-y-3 sm:space-y-4 hover:border-emerald-500/40 transition-all">
+                          <div key={w.id || w._id} className={`bg-card border rounded-2xl p-4 sm:p-5 shadow-sm space-y-3 sm:space-y-4 transition-all ${
+                            isFulfilled ? 'border-emerald-500/30 bg-emerald-500/5' : isClaimPending ? 'border-amber-500/30 bg-amber-500/5' : 'border-border hover:border-emerald-500/40'
+                          }`}>
                             <div className="flex items-start justify-between gap-2">
                               <div className="min-w-0">
                                 <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 uppercase tracking-wider">
@@ -329,15 +310,21 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                                 </p>
                               </div>
                               <div className="text-right shrink-0">
-                                <span className="text-xs sm:text-sm font-extrabold text-foreground">{daysLeft} Days</span>
-                                <span className="block text-[10px] text-muted-foreground">Remaining</span>
+                                {isFulfilled ? (
+                                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 px-2 py-0.5 rounded-md">Fulfilled</span>
+                                ) : (
+                                  <>
+                                    <span className="text-xs sm:text-sm font-extrabold text-foreground">{daysLeft} Days</span>
+                                    <span className="block text-[10px] text-muted-foreground">Remaining</span>
+                                  </>
+                                )}
                               </div>
                             </div>
 
                             {/* Progress bar */}
                             <div className="space-y-1">
                               <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
-                                <div className="h-full bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                                <div className={`h-full rounded-full transition-all ${isFulfilled ? 'bg-emerald-500/40' : 'bg-gradient-to-r from-emerald-500 to-teal-500'}`} style={{ width: `${isFulfilled ? 100 : pct}%` }} />
                               </div>
                               <div className="flex justify-between text-[10px] text-muted-foreground">
                                 <span>Issued: {new Date(w.startDate).toLocaleDateString()}</span>
@@ -349,18 +336,29 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                               "{w.coverageTerms}"
                             </p>
 
-                            <div className="flex items-center justify-between gap-2 pt-1">
-                              <button
-                                onClick={() => setClaimingWarranty(w)}
-                                className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 active:scale-95"
-                              >
-                                <AlertCircle className="w-3.5 h-3.5" /> Claim Rework
-                              </button>
+                            <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                              {isFulfilled ? (
+                                <span className="px-3 py-1.5 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-extrabold rounded-xl text-xs flex items-center gap-1.5 border border-emerald-500/30">
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> Rework Fulfilled & Completed
+                                </span>
+                              ) : isClaimPending ? (
+                                <span className="px-3 py-1.5 bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold rounded-xl text-xs flex items-center gap-1.5 border border-amber-500/30">
+                                  <Clock className="w-3.5 h-3.5 text-amber-500 animate-spin" /> Rework In Progress
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => setClaimingWarranty(w)}
+                                  className="px-3.5 sm:px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 active:scale-95"
+                                >
+                                  <AlertCircle className="w-3.5 h-3.5" /> Claim Rework
+                                </button>
+                              )}
+
                               <button
                                 onClick={() => {
                                   toast({ title: '📥 Certificate Downloaded', description: `Warranty certificate ${w.warrantyNumber} exported.` });
                                 }}
-                                className="px-2.5 sm:px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-colors"
+                                className="px-2.5 sm:px-3 py-2 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted rounded-xl transition-colors ml-auto"
                               >
                                 View Terms
                               </button>
@@ -416,36 +414,88 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                     </div>
                   </div>
 
-                  {/* Wallet Top-up & Ledger */}
+                  {/* Wallet Deposit to Account (UPI) & Ledger */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
-                    <div className="lg:col-span-5 bg-muted/30 border border-border p-4 sm:p-5 rounded-2xl space-y-3 sm:space-y-4">
-                      <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
-                        <Zap className="w-4 h-4 text-amber-500" /> Instant Wallet Top-up
-                      </h4>
-                      <p className="text-xs text-muted-foreground">Pre-fund your ServiceHub wallet for frictionless 1-click checkout.</p>
-                      
-                      <div className="grid grid-cols-3 gap-2">
-                        {['250', '500', '1000'].map(amt => (
-                          <button
-                            key={amt}
-                            type="button"
-                            onClick={() => setTopupAmount(amt)}
-                            className={`py-2 rounded-xl text-xs font-bold border transition-all ${
-                              topupAmount === amt ? 'bg-primary text-white border-primary' : 'bg-card border-border text-foreground hover:bg-muted'
-                            }`}
-                          >
-                            ₹{amt}
-                          </button>
-                        ))}
+                    <div className="lg:col-span-5 bg-gradient-to-br from-card to-muted/40 border border-border p-4 sm:p-5 rounded-2xl space-y-3 sm:space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-bold text-sm text-foreground flex items-center gap-2">
+                          <Wallet className="w-4 h-4 text-emerald-500" /> Transfer Balance to Account (UPI)
+                        </h4>
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                          Instant Payout
+                        </span>
                       </div>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Transfer your available wallet balance directly to your bank account via UPI.
+                      </p>
+                      
+                      <form onSubmit={handleWithdraw} className="space-y-3 pt-1">
+                        <div className="space-y-1">
+                          <div className="flex justify-between items-center text-xs">
+                            <label className="font-bold text-foreground">Withdrawal Amount (₹)</label>
+                            <span className="text-muted-foreground text-[11px]">
+                              Available: <strong className="text-foreground">₹{data?.wallet?.balance || 0}</strong>
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-2.5 text-sm font-bold text-muted-foreground">₹</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max={data?.wallet?.balance || 10000}
+                              required
+                              value={withdrawAmount}
+                              onChange={(e) => setWithdrawAmount(e.target.value)}
+                              placeholder="Enter amount"
+                              className="w-full pl-7 pr-3 py-2 text-sm bg-background border border-border rounded-xl font-bold focus:ring-2 focus:ring-primary focus:outline-none"
+                            />
+                          </div>
+                        </div>
 
-                      <button
-                        onClick={handleTopup}
-                        disabled={topupLoading}
-                        className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 active:scale-98"
-                      >
-                        {topupLoading ? 'Adding Credits...' : `Top-up ₹${topupAmount} Now`}
-                      </button>
+                        {/* Quick Amount Selectors */}
+                        <div className="grid grid-cols-4 gap-1.5 text-xs">
+                          {['50', '100', '250'].map(amt => (
+                            <button
+                              key={amt}
+                              type="button"
+                              onClick={() => setWithdrawAmount(amt)}
+                              className={`py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                                withdrawAmount === amt ? 'bg-primary text-primary-foreground border-primary font-bold' : 'bg-muted/50 border-border text-foreground hover:bg-muted'
+                              }`}
+                            >
+                              ₹{amt}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setWithdrawAmount(String(data?.wallet?.balance || 0))}
+                            className="py-1.5 rounded-lg text-xs font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all truncate"
+                          >
+                            All (₹{data?.wallet?.balance || 0})
+                          </button>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-xs font-bold text-foreground">Your Bank UPI ID</label>
+                          <input
+                            type="text"
+                            required
+                            value={withdrawUpiId}
+                            onChange={(e) => setWithdrawUpiId(e.target.value)}
+                            placeholder="e.g. name@okhdfcbank or 9840994649@paytm"
+                            className="w-full px-3 py-2 text-xs bg-background border border-border rounded-xl font-medium focus:ring-2 focus:ring-primary focus:outline-none"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={withdrawLoading || !data?.wallet?.balance || data?.wallet?.balance <= 0}
+                          className="w-full py-2.5 sm:py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <ArrowRight className="w-3.5 h-3.5" />
+                          {withdrawLoading ? 'Processing Transfer...' : `Transfer ₹${withdrawAmount || 0} to UPI Account`}
+                        </button>
+                      </form>
                     </div>
 
                     <div className="lg:col-span-7 bg-card border border-border p-4 sm:p-5 rounded-2xl space-y-3">
@@ -456,17 +506,20 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                         {(!data?.wallet?.transactions || data.wallet.transactions.length === 0) ? (
                           <p className="text-xs text-muted-foreground text-center py-6">No wallet transactions recorded yet.</p>
                         ) : (
-                          data.wallet.transactions.map((tx: any, idx: number) => (
-                            <div key={tx.id || idx} className="flex items-center justify-between p-2.5 sm:p-3 bg-muted/40 rounded-xl border border-border/50 text-xs">
-                              <div className="min-w-0 pr-2">
-                                <span className="font-semibold text-foreground block truncate">{tx.description}</span>
-                                <span className="text-[10px] text-muted-foreground">{new Date(tx.date).toLocaleDateString()}</span>
+                          data.wallet.transactions.map((tx: any, idx: number) => {
+                            const isDebit = tx.type === 'booking_payment' || tx.type === 'withdrawal';
+                            return (
+                              <div key={tx.id || idx} className="flex items-center justify-between p-2.5 sm:p-3 bg-muted/40 rounded-xl border border-border/50 text-xs">
+                                <div className="min-w-0 pr-2">
+                                  <span className="font-semibold text-foreground block truncate">{tx.description}</span>
+                                  <span className="text-[10px] text-muted-foreground">{new Date(tx.date).toLocaleDateString()}</span>
+                                </div>
+                                <span className={`font-extrabold shrink-0 ${isDebit ? 'text-destructive' : 'text-emerald-500'}`}>
+                                  {isDebit ? '-' : '+'}₹{tx.amount}
+                                </span>
                               </div>
-                              <span className={`font-extrabold shrink-0 ${tx.type === 'booking_payment' ? 'text-destructive' : 'text-emerald-500'}`}>
-                                {tx.type === 'booking_payment' ? '-' : '+'}₹{tx.amount}
-                              </span>
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -519,72 +572,7 @@ export default function CustomerRetentionModal({ onClose, onRebook }: CustomerRe
                 </div>
               )}
 
-              {/* ── TAB 4: MEMBERSHIP PLANS ── */}
-              {activeTab === 'membership' && (
-                <div className="space-y-4 sm:space-y-6">
-                  <div className="text-center max-w-2xl mx-auto space-y-1">
-                    <h3 className="text-base sm:text-xl font-bold font-display text-foreground">ServiceHub Shield Membership Tiers</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Upgrade for instant bill discounts, extended warranties, and 30-min priority dispatch.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                    {plans.map((p: any) => {
-                      const isCurrent = data?.membership?.planType === p.id;
-                      return (
-                        <div
-                          key={p.id}
-                          className={`bg-card border-2 rounded-2xl sm:rounded-3xl p-4 sm:p-5 flex flex-col justify-between transition-all ${
-                            isCurrent
-                              ? 'border-primary shadow-xl ring-2 ring-primary/20'
-                              : 'border-border hover:border-border/80'
-                          }`}
-                        >
-                          <div className="space-y-2.5 sm:space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[10px] sm:text-xs font-bold text-primary uppercase tracking-wider">{p.badge}</span>
-                              {isCurrent && (
-                                <span className="bg-primary text-white text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full">ACTIVE</span>
-                              )}
-                            </div>
-                            <h4 className="font-extrabold text-sm sm:text-base text-foreground">{p.name}</h4>
-                            <div className="text-xl sm:text-2xl font-black text-foreground">
-                              ₹{p.price} <span className="text-xs font-normal text-muted-foreground">/ {p.id === 'silver' ? '6 mo' : p.id === 'free' ? 'life' : 'yr'}</span>
-                            </div>
-                            <div className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-xl">
-                              {p.discount} · {p.warranty}
-                            </div>
-
-                            <ul className="space-y-1.5 sm:space-y-2 pt-2 text-xs text-muted-foreground border-t border-border">
-                              {p.features?.map((f: string, idx: number) => (
-                                <li key={idx} className="flex items-start gap-1.5 sm:gap-2">
-                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                                  <span>{f}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <button
-                            onClick={() => handleSubscribePlan(p.id)}
-                            disabled={isCurrent}
-                            className={`w-full mt-4 sm:mt-5 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
-                              isCurrent
-                                ? 'bg-muted text-muted-foreground cursor-default'
-                                : 'bg-primary hover:bg-primary/90 text-white shadow-md'
-                            }`}
-                          >
-                            {isCurrent ? 'Current Plan' : `Upgrade to ${p.name}`}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* ── TAB 5: DIGITAL SERVICE HISTORY & REBOOKING ── */}
+              {/* ── TAB 4: DIGITAL SERVICE HISTORY & REBOOKING ── */}
               {activeTab === 'history' && (
                 <div className="space-y-3 sm:space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">

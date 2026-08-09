@@ -11,6 +11,7 @@ import BookingChatModal from '@/components/chat/BookingChatModal';
 import AIDiagnosisModal from '@/components/AIDiagnosisModal';
 import NotificationBell from '@/components/NotificationBell';
 import CustomerRetentionModal from '@/components/CustomerRetentionModal';
+import CustomerAgreementServices from '@/components/agreements/CustomerAgreementServices';
 import ProviderReviewsModal from '@/components/ProviderReviewsModal';
 import ReviewsSection from '@/components/sections/ReviewsSection';
 import ContactSection from '@/components/sections/ContactSection';
@@ -37,8 +38,9 @@ const Index = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAIDiagnosis, setShowAIDiagnosis] = useState(false);
   const [showRetentionHub, setShowRetentionHub] = useState(false);
+  const [showAgreementHub, setShowAgreementHub] = useState(false);
   const [activeChatBookingId, setActiveChatBookingId] = useState<string | null>(null);
-  const [retentionTab, setRetentionTab] = useState<'warranties' | 'wallet' | 'rewards' | 'membership' | 'history' | 'emergency'>('warranties');
+  const [retentionTab, setRetentionTab] = useState<'warranties' | 'wallet' | 'rewards' | 'history' | 'emergency'>('warranties');
   const [reviewsProvider, setReviewsProvider] = useState<{ id: string; name: string } | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isAppInstalled, setIsAppInstalled] = useState(false);
@@ -186,6 +188,12 @@ const Index = () => {
                         <div className="text-xs text-muted-foreground truncate">{user.email}</div>
                       </div>
                       <button
+                        onClick={() => { setShowAgreementHub(true); setShowUserMenu(false); }}
+                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
+                      >
+                        🛡️ 12-Mo Agreements & Care
+                      </button>
+                      <button
                         onClick={() => { setRetentionTab('warranties'); setShowRetentionHub(true); setShowUserMenu(false); }}
                         className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
                       >
@@ -196,12 +204,6 @@ const Index = () => {
                         className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
                       >
                         💳 Wallet & Cashback
-                      </button>
-                      <button
-                        onClick={() => { setRetentionTab('membership'); setShowRetentionHub(true); setShowUserMenu(false); }}
-                        className="w-full px-4 py-2 text-xs text-foreground text-left hover:bg-muted transition-colors flex items-center gap-2 font-medium"
-                      >
-                        ⭐ Membership Shield
                       </button>
                       <button
                         id="menu-my-bookings"
@@ -471,6 +473,26 @@ const Index = () => {
             else if (allProviders.length > 0) setBookingProvider(allProviders[0]);
           }}
         />
+      )}
+      {showAgreementHub && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-card border rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-4 border-b flex justify-between items-center bg-muted/40">
+              <span className="font-bold text-sm text-foreground flex items-center gap-2">
+                🛡️ Customer Agreement Protection Center
+              </span>
+              <button
+                onClick={() => setShowAgreementHub(false)}
+                className="w-8 h-8 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              <CustomerAgreementServices />
+            </div>
+          </div>
+        </div>
       )}
       {activeChatBookingId && (
         <BookingChatModal

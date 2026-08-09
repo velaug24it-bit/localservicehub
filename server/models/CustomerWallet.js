@@ -4,7 +4,7 @@ const WalletTransactionSchema = new mongoose.Schema({
   id: { type: String, required: true },
   type: { 
     type: String, 
-    enum: ['cashback', 'reward_redemption', 'referral_bonus', 'promo_credit', 'booking_payment', 'topup'],
+    enum: ['cashback', 'reward_redemption', 'referral_bonus', 'promo_credit', 'booking_payment', 'topup', 'withdrawal'],
     required: true 
   },
   amount: { type: Number, required: true },
@@ -15,12 +15,12 @@ const WalletTransactionSchema = new mongoose.Schema({
 
 const CustomerWalletSchema = new mongoose.Schema({
   userId: { type: String, required: true, unique: true },
-  balance: { type: Number, default: 250 }, // Initial welcome promotional credit
-  cashbackBalance: { type: Number, default: 100 },
-  promoCredits: { type: Number, default: 150 },
-  rewardPoints: { type: Number, default: 200 },
+  balance: { type: Number, default: 100 }, // Initial welcome promotional credit (100)
+  cashbackBalance: { type: Number, default: 0 },
+  promoCredits: { type: Number, default: 100 },
+  rewardPoints: { type: Number, default: 100 },
   referralCode: { type: String, default: '' },
-  totalEarned: { type: Number, default: 250 },
+  totalEarned: { type: Number, default: 100 },
   totalSpent: { type: Number, default: 0 },
   transactions: { type: [WalletTransactionSchema], default: [] }
 }, {

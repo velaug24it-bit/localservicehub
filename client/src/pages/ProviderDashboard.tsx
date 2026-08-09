@@ -8,11 +8,19 @@ import ProviderCalendar from '@/components/provider/ProviderCalendar';
 import ProviderPricingTab from '@/components/provider/ProviderPricingTab';
 import ProviderBusinessCenter from '@/components/provider/ProviderBusinessCenter';
 import ProviderChatInbox from '@/components/provider/ProviderChatInbox';
+import AIBusinessCoach from '@/components/provider/AIBusinessCoach';
+import ProviderAgreementRequests from '@/components/provider/ProviderAgreementRequests';
+import ProviderWarrantyClaims from '@/components/provider/ProviderWarrantyClaims';
 import BookingChatModal from '@/components/chat/BookingChatModal';
 import NotificationBell from '@/components/NotificationBell';
 import Footer from '@/components/Footer';
 import { trackingSteps } from '@/data/providers';
-import { Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2, ChevronDown, ChevronUp, Package } from 'lucide-react';
+import { 
+  Calendar, DollarSign, ShieldAlert, Award, ArrowUpRight, CheckCircle2, 
+  ChevronDown, ChevronUp, Package, Wrench, Menu, X, ChevronRight, 
+  ClipboardList, Zap, MessageSquare, TrendingUp, Tag, CreditCard, 
+  Sparkles, FileText, User, ShieldCheck, Phone, LogOut 
+} from 'lucide-react';
 
 interface ProviderBooking {
   id: string;
@@ -65,7 +73,22 @@ const ProviderDashboard = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<ProviderBooking[]>([]);
-  const [activeTab, setActiveTab] = useState<'bookings' | 'messages' | 'business' | 'queue' | 'calendar' | 'earnings' | 'profile' | 'subscription' | 'pricing'>('bookings');
+  const [activeTab, setActiveTab] = useState<
+    | 'bookings'
+    | 'queue'
+    | 'calendar'
+    | 'warranty-rework'
+    | 'messages'
+    | 'business'
+    | 'earnings'
+    | 'pricing'
+    | 'subscription'
+    | 'ai-coach'
+    | 'agreement-requests'
+    | 'profile'
+  >('bookings');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [warrantyReworkCount, setWarrantyReworkCount] = useState<number>(0);
   const [openMaterialsId, setOpenMaterialsId] = useState<string | null>(null);
   const [activeChatBookingId, setActiveChatBookingId] = useState<string | null>(null);
   const [unreadMsgCount, setUnreadMsgCount] = useState<number>(0);
@@ -82,12 +105,27 @@ const ProviderDashboard = () => {
     } catch {}
   };
 
+  const fetchWarrantyCount = async () => {
+    try {
+      const res = await api.providerWarranty.list();
+      const active = (res || []).filter((w: any) => {
+        const last = w.claims?.[w.claims.length - 1];
+        return last?.status !== 'Resolved';
+      }).length;
+      setWarrantyReworkCount(active);
+    } catch {}
+  };
+
   useEffect(() => {
     if (user) {
       fetchProviderBookings();
       fetchBillingStatus();
       fetchUnreadCount();
-      const interval = setInterval(fetchUnreadCount, 5000);
+      fetchWarrantyCount();
+      const interval = setInterval(() => {
+        fetchUnreadCount();
+        fetchWarrantyCount();
+      }, 6000);
       return () => clearInterval(interval);
     }
   }, [user]);
@@ -352,15 +390,77 @@ const ProviderDashboard = () => {
   };
 
   const handleSwitchToCommission = async () => {
+    setBillingLoading(true);
     try {
+      // Update profile model first
       await api.auth.updateProfile({
         revenueModel: 'commission',
         subscriptionActive: false
       });
-      toast({ title: 'Switched Model', description: 'Your revenue model is set to 5% Per-Work Commission.' });
+      // Always reactivate so profile becomes visible and 30-day cycle resets
+      await api.providers.reactivate({});
+      toast({ title: '✅ Profile Reactivated!', description: 'You are now on the 5% Per-Work Commission plan and visible to clients.' });
+      await fetchBillingStatus();
       window.location.reload();
     } catch (err: any) {
-      toast({ title: 'Failed to switch model', description: err.message, variant: 'destructive' });
+      toast({ title: 'Failed to reactivate with commission plan', description: err.message, variant: 'destructive' });
+    } finally {
+      setBillingLoading(false);
+    }
+  };
+
+  const handleActivateCommissionPlan = async () => {
+    // Called when profile is already on commission model but inactive (30-day cycle expired)
+    setBillingLoading(true);
+    try {
+      const order = await api.payments.createReactivationOrder();
+
+      if (order.free || order.mock) {
+        await api.providers.reactivate({ razorpayOrderId: order.id });
+        toast({ title: '✅ Profile Reactivated!', description: 'Your 5% commission profile is now active and visible to clients for the next 30 days.' });
+        await fetchBillingStatus();
+        setBillingLoading(false);
+        return;
+      }
+
+      // Real Razorpay for when earnings threshold exceeded
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) {
+        toast({ title: 'Payment SDK Error', description: 'Failed to load Razorpay.', variant: 'destructive' });
+        setBillingLoading(false);
+        return;
+      }
+
+      const options = {
+        key: order.keyId,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'ServiceHub Commission',
+        description: `5% commission on earnings (₹${order.amountDue})`,
+        order_id: order.id,
+        handler: async (response: any) => {
+          try {
+            await api.providers.reactivate({
+              razorpayOrderId: order.id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature
+            });
+            toast({ title: '✅ Profile Reactivated!', description: 'Your profile is now active and visible to clients.' });
+            await fetchBillingStatus();
+          } catch (err: any) {
+            toast({ title: 'Reactivation failed', description: err.message, variant: 'destructive' });
+          } finally {
+            setBillingLoading(false);
+          }
+        },
+        prefill: { name: user?.name || '', email: user?.email || '' },
+        theme: { color: '#6366f1' }
+      };
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      toast({ title: 'Reactivation failed', description: err.message, variant: 'destructive' });
+      setBillingLoading(false);
     }
   };
 
@@ -388,21 +488,147 @@ const ProviderDashboard = () => {
     cancelled: bookings.filter(b => b.status === 'Cancelled').length,
   };
 
+  const navItems = [
+    { 
+      key: 'bookings' as const, 
+      label: 'Bookings', 
+      icon: ClipboardList, 
+      emoji: '📋', 
+      badge: bookings.filter(b => b.status === 'Confirmed' || b.status === 'In Progress').length || null, 
+      badgeColor: 'bg-primary text-primary-foreground' 
+    },
+    { 
+      key: 'queue' as const, 
+      label: 'Queue', 
+      icon: Zap, 
+      emoji: '⚡', 
+      badge: waitingQueue.length || null,
+      badgeColor: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+    },
+    { 
+      key: 'calendar' as const, 
+      label: 'Calendar', 
+      icon: Calendar, 
+      emoji: '📅', 
+      badge: null,
+      badgeColor: '' 
+    },
+    { 
+      key: 'warranty-rework' as const, 
+      label: 'Warranty Reworks', 
+      icon: Wrench, 
+      emoji: '🛡️', 
+      badge: warrantyReworkCount || null, 
+      badgeColor: 'bg-destructive text-destructive-foreground animate-pulse font-extrabold' 
+    },
+    { 
+      key: 'messages' as const, 
+      label: 'Messages', 
+      icon: MessageSquare, 
+      emoji: '💬', 
+      badge: unreadMsgCount || null, 
+      badgeColor: 'bg-destructive text-destructive-foreground animate-pulse font-extrabold' 
+    },
+    { 
+      key: 'business' as const, 
+      label: 'Business Center', 
+      icon: TrendingUp, 
+      emoji: '📊', 
+      badge: null,
+      badgeColor: '' 
+    },
+    { 
+      key: 'earnings' as const, 
+      label: 'Earnings', 
+      icon: DollarSign, 
+      emoji: '💰', 
+      badge: null,
+      badgeColor: '' 
+    },
+    { 
+      key: 'pricing' as const, 
+      label: 'Pricing', 
+      icon: Tag, 
+      emoji: '🏷️', 
+      badge: null,
+      badgeColor: '' 
+    },
+    { 
+      key: 'subscription' as const, 
+      label: 'Subscription', 
+      icon: CreditCard, 
+      emoji: '💳', 
+      badge: isSubExpiringSoon ? 'Renew' : null, 
+      badgeColor: 'bg-warning text-warning-foreground animate-pulse' 
+    },
+    { 
+      key: 'ai-coach' as const, 
+      label: 'AI Business Coach', 
+      icon: Sparkles, 
+      emoji: '🤖', 
+      badge: '✨ AI', 
+      badgeColor: 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white font-bold' 
+    },
+    { 
+      key: 'agreement-requests' as const, 
+      label: 'Agreements', 
+      icon: FileText, 
+      emoji: '📜', 
+      badge: null,
+      badgeColor: '' 
+    },
+    { 
+      key: 'profile' as const, 
+      label: 'Profile', 
+      icon: User, 
+      emoji: '👤', 
+      badge: null,
+      badgeColor: '' 
+    },
+  ];
+
+  const currentNav = navItems.find(item => item.key === activeTab) || navItems[0];
+
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-card/80 backdrop-blur-md border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <h1 className="text-xl font-display font-bold gradient-text">ServiceHub Provider</h1>
+      {/* Top Header */}
+      <header className="sticky top-0 z-40 bg-card/90 backdrop-blur-md border-b border-border shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
+            {/* Mobile Hamburger Button */}
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="lg:hidden p-2 rounded-xl bg-muted hover:bg-muted/80 text-foreground transition-colors flex items-center justify-center shrink-0 border border-border"
+              aria-label="Toggle Navigation Menu"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-xl font-display font-bold gradient-text truncate">
+                ServiceHub Provider
+              </h1>
+              <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                <span>{currentNav.emoji}</span>
+                <span>{currentNav.label}</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 sm:gap-3">
             <NotificationBell />
-            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold">
+            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-sm font-bold shadow-sm">
               {user?.name.charAt(0).toUpperCase()}
             </div>
-            <span className="text-sm font-medium text-foreground hidden sm:block">{user?.name}</span>
-            <button onClick={handleLogout}
-              className="px-2.5 py-1.5 rounded-lg text-sm text-destructive hover:bg-destructive/10 transition-colors font-medium flex items-center gap-1 shrink-0">
-              <span>🚪</span>
+            <span className="text-xs sm:text-sm font-semibold text-foreground hidden md:block truncate max-w-[130px]">
+              {user?.name}
+            </span>
+            <button
+              onClick={handleLogout}
+              className="px-2.5 py-1.5 rounded-xl text-xs sm:text-sm text-destructive hover:bg-destructive/10 transition-colors font-semibold flex items-center gap-1 shrink-0"
+            >
+              <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
@@ -411,19 +637,31 @@ const ProviderDashboard = () => {
 
       {/* Subscription Active Warning Alert */}
       {billing && !billing.isActive && (
-        <div className="bg-destructive/10 border-b border-destructive/20 text-destructive px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm animate-pulse">
+        <div className="bg-destructive/10 border-b border-destructive/20 text-destructive px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm">
           <div className="flex items-center gap-2">
             <ShieldAlert className="w-5 h-5 text-destructive shrink-0" />
             <span>
               <strong>Profile Inactive:</strong> Your 30-day active period has expired. Your profile is currently <strong>hidden from clients</strong> in searches and AI matches. 
             </span>
           </div>
-          <button 
-            onClick={() => setActiveTab('subscription')}
-            className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-xs font-bold hover:opacity-90 transition-opacity shrink-0"
-          >
-            Reactivate Profile
-          </button>
+          <div className="flex items-center gap-2 flex-wrap shrink-0">
+            <button 
+              disabled={billingLoading}
+              onClick={handleActivateCommissionPlan}
+              className="bg-destructive text-destructive-foreground px-4 py-2 rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-60 flex items-center gap-1.5"
+            >
+              {billingLoading ? (
+                <span className="w-3.5 h-3.5 border-2 border-destructive-foreground border-t-transparent rounded-full animate-spin" />
+              ) : '⚡'}
+              {billingLoading ? 'Reactivating...' : 'Reactivate (5% Commission)'}
+            </button>
+            <button 
+              onClick={() => setActiveTab('subscription')}
+              className="bg-card border border-destructive/40 text-destructive px-3 py-2 rounded-lg text-xs font-semibold hover:bg-destructive/10 transition-colors"
+            >
+              View Plans
+            </button>
+          </div>
         </div>
       )}
 
@@ -445,48 +683,209 @@ const ProviderDashboard = () => {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        {/* Stats Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-          {[
-            { label: 'Total Bookings', value: stats.total, icon: '📋', color: 'bg-primary/10 text-primary' },
-            { label: 'Active', value: stats.active, icon: '🔄', color: 'bg-warning/10 text-warning' },
-            { label: 'Completed', value: stats.completed, icon: '✅', color: 'bg-success/10 text-success' },
-            { label: 'Earnings', value: `₹${totalEarnings.toLocaleString()}`, icon: '💰', color: 'bg-info/10 text-info' },
-            { label: 'Pending Pay', value: `₹${pendingPayment.toLocaleString()}`, icon: '⏳', color: 'bg-accent text-accent-foreground' },
-          ].map(s => (
-            <div key={s.label} className={`bg-card rounded-xl border border-border p-5 hover:shadow-card transition-all ${
-              s.label === 'Pending Pay' ? 'col-span-2 sm:col-span-2 lg:col-span-1' : ''
-            }`}>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-2xl">{s.icon}</span>
-                <span className={`text-xs font-medium px-2 py-1 rounded-full ${s.color}`}>{s.label}</span>
+      {/* Mobile Drawer Navigation (When Hamburger Clicked) */}
+      {mobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden animate-fade-in"
+          onClick={() => setMobileMenuOpen(false)}
+        >
+          <div 
+            className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-card border-r border-border p-4 sm:p-5 flex flex-col shadow-2xl overflow-y-auto"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Drawer Top Header */}
+            <div className="flex items-center justify-between pb-3.5 border-b border-border">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center text-primary-foreground font-bold shadow-sm">
+                  {user?.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-xs sm:text-sm text-foreground truncate">{user?.name}</div>
+                  <div className="text-[10px] text-muted-foreground truncate">{(user as any)?.category || 'Certified Specialist'}</div>
+                </div>
               </div>
-              <div className="text-2xl font-display font-bold text-foreground">{s.value}</div>
+              <button 
+                onClick={() => setMobileMenuOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                aria-label="Close Menu"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-          ))}
-        </div>
 
-        {/* Tabs */}
-        <div className="flex rounded-lg bg-muted p-1 mb-6 max-w-5xl overflow-x-auto no-scrollbar">
-          {(['bookings', 'messages', 'business', 'queue', 'calendar', 'earnings', 'pricing', 'profile', 'subscription'] as const).map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2.5 rounded-md text-sm font-semibold capitalize transition-all whitespace-nowrap px-3 flex items-center justify-center gap-1.5 ${
-                activeTab === tab ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground'
-              }`}>
-              {tab === 'messages' ? (
-                <>
-                  <span>💬 Messages</span>
-                  {unreadMsgCount > 0 && (
-                    <span className="bg-destructive text-destructive-foreground text-[10px] font-black px-1.5 py-0.2 rounded-full animate-pulse">
-                      {unreadMsgCount}
-                    </span>
-                  )}
-                </>
-              ) : tab === 'business' ? '📊 Business Center 💼' : tab === 'queue' ? 'Queue' : tab === 'subscription' ? 'Subscription 💳' : tab === 'calendar' ? '📅 Calendar' : tab === 'pricing' ? '💰 Pricing' : tab}
-            </button>
-          ))}
+            {/* Navigation List in exact user-requested order */}
+            <div className="py-3.5 space-y-1 flex-1">
+              {navItems.map(item => {
+                const isActive = activeTab === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => {
+                      setActiveTab(item.key);
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between gap-2.5 ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="text-base leading-none">{item.emoji}</span>
+                      <span className="truncate">{item.label}</span>
+                    </div>
+                    {item.badge && (
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 ${item.badgeColor || 'bg-muted text-muted-foreground'}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="pt-3 border-t border-border space-y-1.5 text-xs">
+              <a
+                href="tel:+919840994649"
+                className="flex items-center gap-2 text-muted-foreground hover:text-foreground p-2 rounded-xl hover:bg-muted transition-colors font-medium"
+              >
+                <Phone className="w-4 h-4 text-emerald-500" />
+                <span>Help: +91 9840994649</span>
+              </a>
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center gap-2 text-destructive hover:bg-destructive/10 p-2 rounded-xl font-bold transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
         </div>
+      )}
+
+      {/* Main Container: Sideway Sidebar (Desktop) + Content (Right) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 flex flex-col lg:flex-row gap-6 items-start">
+        {/* Desktop Sideway Sidebar */}
+        <aside className="hidden lg:flex flex-col w-64 xl:w-72 shrink-0 bg-card border border-border rounded-3xl p-4 shadow-sm sticky top-20 space-y-4">
+          {/* Provider Mini Card */}
+          <div className="p-3.5 bg-muted/40 rounded-2xl border border-border/50 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl gradient-primary flex items-center justify-center text-primary-foreground font-extrabold shadow-sm shrink-0">
+              {user?.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-sm text-foreground truncate flex items-center gap-1">
+                <span className="truncate">{user?.name}</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              </div>
+              <div className="text-[11px] text-muted-foreground truncate">{(user as any)?.category || 'Service Specialist'}</div>
+              <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                ● Verified Specialist
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation Menu in Exact Requested Order */}
+          <nav className="space-y-1 max-h-[calc(100vh-280px)] overflow-y-auto no-scrollbar pr-0.5">
+            {navItems.map(item => {
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setActiveTab(item.key)}
+                  className={`w-full px-3 py-2.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-between gap-2 text-left group active:scale-98 ${
+                    isActive
+                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20 font-extrabold'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="text-base leading-none shrink-0">{item.emoji}</span>
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {item.badge && (
+                      <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${item.badgeColor || 'bg-muted text-muted-foreground'}`}>
+                        {item.badge}
+                      </span>
+                    )}
+                    {isActive && <ChevronRight className="w-3.5 h-3.5 opacity-80" />}
+                  </div>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Quick Helpline Box */}
+          <div className="p-3 bg-gradient-to-br from-indigo-500/10 to-violet-500/10 border border-indigo-500/20 rounded-2xl text-xs space-y-1">
+            <div className="font-bold text-foreground flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5 text-indigo-500" /> Helpline
+            </div>
+            <a href="tel:+919840994649" className="text-[11px] text-muted-foreground hover:text-primary font-semibold block">
+              +91 9840994649
+            </a>
+          </div>
+        </aside>
+
+        {/* Right Main Content Area */}
+        <main className="flex-1 min-w-0 w-full space-y-6">
+          {/* Quick Stats Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5 sm:gap-4">
+            {[
+              { label: 'Total Bookings', value: stats.total, icon: '📋', color: 'bg-primary/10 text-primary' },
+              { label: 'Active', value: stats.active, icon: '🔄', color: 'bg-warning/10 text-warning' },
+              { label: 'Completed', value: stats.completed, icon: '✅', color: 'bg-success/10 text-success' },
+              { label: 'Earnings', value: `₹${totalEarnings.toLocaleString()}`, icon: '💰', color: 'bg-info/10 text-info' },
+              { label: 'Pending Pay', value: `₹${pendingPayment.toLocaleString()}`, icon: '⏳', color: 'bg-accent text-accent-foreground' },
+            ].map(s => (
+              <div key={s.label} className={`bg-card rounded-2xl border border-border p-4 hover:shadow-card transition-all ${
+                s.label === 'Pending Pay' ? 'col-span-2 sm:col-span-2 lg:col-span-1' : ''
+              }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xl sm:text-2xl">{s.icon}</span>
+                  <span className={`text-[10px] sm:text-xs font-semibold px-2 py-0.5 rounded-full ${s.color}`}>{s.label}</span>
+                </div>
+                <div className="text-xl sm:text-2xl font-display font-bold text-foreground">{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Active Feature View Header */}
+          <div className="flex items-center justify-between pb-2 border-b border-border">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">{currentNav.emoji}</span>
+              <h2 className="text-base sm:text-lg font-display font-bold text-foreground">
+                {currentNav.label}
+              </h2>
+            </div>
+            {currentNav.badge && (
+              <span className={`text-xs font-extrabold px-2.5 py-1 rounded-full ${currentNav.badgeColor || 'bg-muted text-muted-foreground'}`}>
+                {currentNav.badge}
+              </span>
+            )}
+          </div>
+
+          {/* Warranty Rework Dispatches Tab */}
+          {activeTab === 'warranty-rework' && (
+            <div>
+              <ProviderWarrantyClaims />
+            </div>
+          )}
+
+        {/* AI Business Coach Tab */}
+        {activeTab === 'ai-coach' && (
+          <div>
+            <AIBusinessCoach />
+          </div>
+        )}
+
+        {/* Assigned Agreement Requests Tab */}
+        {activeTab === 'agreement-requests' && (
+          <div>
+            <ProviderAgreementRequests />
+          </div>
+        )}
 
         {/* Messages Tab (Booking Chats) */}
         {activeTab === 'messages' && (
@@ -873,18 +1272,33 @@ const ProviderDashboard = () => {
                       </p>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-border/60">
+                    <div className="mt-6 pt-4 border-t border-border/60 space-y-2">
                       {isSubscriptionPlan ? (
                         <button
                           type="button"
+                          disabled={billingLoading}
                           onClick={handleSwitchToCommission}
-                          className="w-full py-2.5 rounded-xl border border-border text-foreground font-semibold text-xs hover:bg-muted transition-colors"
+                          className="w-full py-2.5 rounded-xl border border-border text-foreground font-semibold text-xs hover:bg-muted transition-colors disabled:opacity-50"
                         >
-                          Switch to 5% Commission Model
+                          {billingLoading ? 'Switching...' : 'Switch to 5% Commission Model'}
+                        </button>
+                      ) : billing && !billing.isActive ? (
+                        // Profile expired — need to reactivate
+                        <button
+                          type="button"
+                          disabled={billingLoading}
+                          onClick={handleActivateCommissionPlan}
+                          className="w-full py-3 rounded-xl bg-primary text-primary-foreground font-bold text-xs hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                        >
+                          {billingLoading ? (
+                            <span className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            '⚡ Reactivate Profile with 5% Commission'
+                          )}
                         </button>
                       ) : (
                         <div className="text-xs font-semibold text-primary flex items-center gap-1.5">
-                          ✓ Currently active for all your completed jobs
+                          ✓ Currently active — 5% commission applies per completed job
                         </div>
                       )}
                     </div>
@@ -972,6 +1386,7 @@ const ProviderDashboard = () => {
             </div>
           </div>
         )}
+        </main>
       </div>
 
       {/* Booking Chat Modal */}
@@ -998,6 +1413,12 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
 }) {
   const [showQr, setShowQr] = useState(false);
   const { user } = useAuth();
+  const [warrantyDays, setWarrantyDays] = useState<number>(30);
+  const [coverageTerms, setCoverageTerms] = useState<string>('');
+  const [warrantyInfo, setWarrantyInfo] = useState<any>(null);
+  const [loadingWarranty, setLoadingWarranty] = useState(false);
+  const [savingWarranty, setSavingWarranty] = useState(false);
+
   const steps = trackingSteps[b.category] || trackingSteps.plumbing;
   const currentStep = b.current_step ?? 0;
   const progress = b.status === 'Completed'
@@ -1007,6 +1428,59 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
     : Math.round(((currentStep + 1) / steps.length) * 100);
 
   const isActive = b.status !== 'Cancelled' && b.status !== 'Completed';
+
+  useEffect(() => {
+    if (b.status === 'Completed') {
+      loadBookingWarranty();
+    }
+  }, [b.id, b.status]);
+
+  const loadBookingWarranty = async () => {
+    try {
+      setLoadingWarranty(true);
+      const wrn = await api.providerWarranty.getByBooking(b.id || b.tracking_id);
+      if (wrn) {
+        setWarrantyInfo(wrn);
+        if (wrn.durationDays) setWarrantyDays(wrn.durationDays);
+        if (wrn.coverageTerms) setCoverageTerms(wrn.coverageTerms);
+      }
+    } catch {} finally {
+      setLoadingWarranty(false);
+    }
+  };
+
+  const handleSaveWarranty = async () => {
+    if (!warrantyDays || warrantyDays <= 0) {
+      toast({ title: 'Invalid Duration', description: 'Please enter valid warranty days (e.g. 30, 60, 90).', variant: 'destructive' });
+      return;
+    }
+    try {
+      setSavingWarranty(true);
+      const res = await api.providerWarranty.setBookingWarranty(b.id, {
+        durationDays: warrantyDays,
+        coverageTerms: coverageTerms.trim() || undefined
+      });
+      setWarrantyInfo(res.warranty);
+      toast({
+        title: '🛡️ Warranty Updated & Issued!',
+        description: `${warrantyDays}-day warranty protection issued to client (${b.customer_name}) and recorded for Admin.`
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Warranty Update Failed',
+        description: err.message,
+        variant: 'destructive'
+      });
+    } finally {
+      setSavingWarranty(false);
+    }
+  };
+
+  const getCalculatedExpiry = (days: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
 
   const handleStepClick = (stepIndex: number) => {
     if (!isActive) return;
@@ -1184,6 +1658,111 @@ function BookingCard({ booking: b, onUpdateStatus, highlight }: {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Workmanship Warranty Protection (Editable by Provider) ── */}
+      {b.status === 'Completed' && (
+        <div className="mt-3.5 border-2 border-indigo-500/25 bg-gradient-to-r from-indigo-500/5 via-violet-500/5 to-purple-500/5 rounded-2xl p-4 sm:p-5 space-y-3.5 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-border/60">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-500 shrink-0">
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-bold text-xs sm:text-sm text-foreground flex items-center gap-1.5">
+                  <span>Workmanship Warranty Protection</span>
+                  <span className="text-[10px] text-muted-foreground font-normal">(Provider Configurable)</span>
+                </h4>
+                <p className="text-[11px] text-muted-foreground">
+                  Set custom warranty days for {b.customer_name}. Automatically synced to Client & Admin dashboard.
+                </p>
+              </div>
+            </div>
+
+            {warrantyInfo?.status === 'Active' ? (
+              <span className="text-[11px] font-extrabold px-3 py-1 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 rounded-full self-start sm:self-auto shrink-0 shadow-sm">
+                🛡️ {warrantyInfo.durationDays}-Day Active Protection
+              </span>
+            ) : (
+              <span className="text-[11px] font-bold px-2.5 py-0.5 bg-amber-500/10 text-amber-600 border border-amber-500/20 rounded-lg self-start sm:self-auto shrink-0">
+                ⏳ Set Warranty Below
+              </span>
+            )}
+          </div>
+
+          {/* Quick preset chips */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-foreground flex items-center justify-between">
+              <span>Choose Warranty Days:</span>
+              <span className="text-[10px] text-muted-foreground font-normal">Click preset or enter custom</span>
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {[15, 30, 60, 90, 180, 365].map(days => (
+                <button
+                  key={days}
+                  type="button"
+                  onClick={() => setWarrantyDays(days)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                    warrantyDays === days
+                      ? 'bg-primary text-primary-foreground shadow-sm ring-2 ring-primary/30'
+                      : 'bg-card border border-border text-foreground hover:bg-muted'
+                  }`}
+                >
+                  {days === 180 ? '180 Days (6 Mo)' : days === 365 ? '365 Days (1 Yr)' : `${days} Days`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-0.5">
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1 font-semibold">Exact Warranty Days:</label>
+              <input
+                type="number"
+                min="1"
+                max="730"
+                value={warrantyDays}
+                onChange={e => setWarrantyDays(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full px-3 py-2 bg-card border border-border rounded-xl text-xs text-foreground font-bold focus:outline-none focus:ring-2 focus:ring-primary shadow-inner"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground block mb-1 font-semibold">Valid Protection Period:</label>
+              <div className="px-3 py-2 bg-muted/60 border border-border rounded-xl text-xs font-bold text-foreground truncate">
+                📅 Valid until {getCalculatedExpiry(warrantyDays)}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1 font-semibold">Coverage Notes (Optional):</label>
+            <input
+              type="text"
+              placeholder="e.g. 100% free rework on plumbing joints, leak test & spare parts."
+              value={coverageTerms}
+              onChange={e => setCoverageTerms(e.target.value)}
+              className="w-full px-3 py-2 bg-card border border-border rounded-xl text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+            <button
+              type="button"
+              disabled={savingWarranty || loadingWarranty}
+              onClick={handleSaveWarranty}
+              className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs font-bold shadow-md shadow-indigo-500/20 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>{savingWarranty ? 'Saving Warranty...' : warrantyInfo ? 'Update Warranty Days' : 'Issue Warranty to Client'}</span>
+            </button>
+
+            {warrantyInfo?.warrantyNumber && (
+              <span className="text-[10px] text-muted-foreground font-mono self-center sm:self-auto">
+                Cert #{warrantyInfo.warrantyNumber}
+              </span>
+            )}
+          </div>
         </div>
       )}
 
