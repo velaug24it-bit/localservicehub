@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Check, ShieldCheck, FileText, PenTool, Type, 
   AlertCircle, Lock, Sparkles, CheckCircle2, ChevronRight 
@@ -45,14 +46,17 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
   }, [isOpen, signatureType]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = ('clientX' in e ? e.clientX : e.touches[0].clientX) - rect.left;
-    const y = ('clientY' in e ? e.clientY : e.touches[0].clientY) - rect.top;
+    const clientX = 'clientX' in e ? e.clientX : e.touches[0].clientX;
+    const clientY = 'clientY' in e ? e.clientY : e.touches[0].clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
 
     ctx.beginPath();
     ctx.moveTo(x, y);
@@ -60,6 +64,7 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
   };
 
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.stopPropagation();
     if (!isDrawing) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -67,19 +72,23 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    const x = ('clientX' in e ? e.clientX : e.touches[0].clientX) - rect.left;
-    const y = ('clientY' in e ? e.clientY : e.touches[0].clientY) - rect.top;
+    const clientX = 'clientX' in e ? e.clientX : e.touches[0].clientX;
+    const clientY = 'clientY' in e ? e.clientY : e.touches[0].clientY;
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
 
     ctx.lineTo(x, y);
     ctx.stroke();
     setHasDrawn(true);
   };
 
-  const stopDrawing = () => {
+  const stopDrawing = (e?: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (e) e.stopPropagation();
     setIsDrawing(false);
   };
 
-  const clearCanvas = () => {
+  const clearCanvas = (e: React.MouseEvent) => {
+    e.stopPropagation();
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -88,7 +97,8 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
     setHasDrawn(false);
   };
 
-  const handleSign = async () => {
+  const handleSign = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!consent) {
       toast({
         title: 'Consent Required',
@@ -151,11 +161,21 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
 
   const snapshot = agreement.templateSnapshot || {};
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-card border rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="bg-card border rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="px-6 py-4 border-b flex items-center justify-between bg-muted/40">
+        <div className="px-6 py-4 border-b flex items-center justify-between bg-muted/40 shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold">
               <FileText className="w-4 h-4" />
@@ -168,7 +188,11 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
             </div>
           </div>
           <button
-            onClick={onClose}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center transition-colors"
           >
             <X className="w-4 h-4" />
@@ -218,7 +242,10 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
               <div className="flex rounded-lg bg-muted p-0.5 text-xs font-medium">
                 <button
                   type="button"
-                  onClick={() => setSignatureType('drawn')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSignatureType('drawn');
+                  }}
                   className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 ${
                     signatureType === 'drawn' ? 'bg-card shadow-sm text-foreground font-bold' : 'text-muted-foreground'
                   }`}
@@ -227,7 +254,10 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSignatureType('typed')}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSignatureType('typed');
+                  }}
                   className={`px-3 py-1 rounded-md transition-all flex items-center gap-1 ${
                     signatureType === 'typed' ? 'bg-card shadow-sm text-foreground font-bold' : 'text-muted-foreground'
                   }`}
@@ -238,7 +268,7 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
             </div>
 
             {signatureType === 'drawn' ? (
-              <div className="space-y-2">
+              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                 <div className="relative border-2 border-dashed border-primary/40 rounded-xl bg-white overflow-hidden shadow-inner">
                   <canvas
                     ref={canvasRef}
@@ -251,7 +281,7 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
                     onTouchStart={startDrawing}
                     onTouchMove={draw}
                     onTouchEnd={stopDrawing}
-                    className="w-full h-[140px] cursor-crosshair touch-none"
+                    className="w-full h-[140px] cursor-crosshair touch-none select-none block"
                   />
                   {!hasDrawn && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-slate-400 text-xs font-medium">
@@ -271,7 +301,7 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2" onClick={(e) => e.stopPropagation()}>
                 <input
                   type="text"
                   value={typedName}
@@ -291,12 +321,15 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
           </div>
 
           {/* Consent Checkbox */}
-          <label className="flex items-start gap-3 p-3 rounded-xl border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors">
+          <label 
+            className="flex items-start gap-3 p-3 rounded-xl border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
+            onClick={(e) => e.stopPropagation()}
+          >
             <input
               type="checkbox"
               checked={consent}
               onChange={(e) => setConsent(e.target.checked)}
-              className="mt-0.5 w-4 h-4 text-primary rounded focus:ring-primary"
+              className="mt-0.5 w-4 h-4 text-primary rounded focus:ring-primary cursor-pointer"
             />
             <span className="text-xs text-foreground leading-relaxed">
               I, <strong>{typedName || agreement.customerName}</strong>, hereby agree and consent to the ServiceHub Post-Booking Service Agreement terms. I certify that this electronic signature is binding and legally authorized by me.
@@ -305,10 +338,13 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
         </div>
 
         {/* Footer Actions */}
-        <div className="px-6 py-4 border-t bg-muted/30 flex items-center justify-between">
+        <div className="px-6 py-4 border-t bg-muted/30 flex items-center justify-between shrink-0">
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="px-4 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             Cancel
@@ -325,6 +361,7 @@ export default function AgreementSignModal({ agreement, isOpen, onClose, onSigne
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

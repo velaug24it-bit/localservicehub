@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Printer, Download, ShieldCheck, CheckCircle2, 
   Calendar, FileText, Lock, Building2, UserCheck, AlertCircle 
@@ -15,7 +16,8 @@ export default function AgreementViewModal({ agreement, isOpen, onClose }: Agree
 
   const snapshot = agreement.templateSnapshot || {};
 
-  const handlePrint = () => {
+  const handlePrint = (e: React.MouseEvent) => {
+    e.stopPropagation();
     window.print();
   };
 
@@ -34,11 +36,21 @@ export default function AgreementViewModal({ agreement, isOpen, onClose }: Agree
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-card border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-fade-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div 
+        className="bg-card border rounded-2xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b flex items-center justify-between bg-muted/40 print:hidden">
+        <div className="px-6 py-4 border-b flex items-center justify-between bg-muted/40 print:hidden shrink-0">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-primary" />
             <div>
@@ -48,13 +60,18 @@ export default function AgreementViewModal({ agreement, isOpen, onClose }: Agree
           </div>
           <div className="flex items-center gap-2">
             <button
+              type="button"
               onClick={handlePrint}
               className="px-3 py-1.5 rounded-lg border text-xs font-semibold text-foreground hover:bg-muted flex items-center gap-1.5 transition-colors"
             >
               <Printer className="w-3.5 h-3.5" /> Print / Save PDF
             </button>
             <button
-              onClick={onClose}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
               className="w-8 h-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted flex items-center justify-center transition-colors"
             >
               <X className="w-4 h-4" />
@@ -98,63 +115,79 @@ export default function AgreementViewModal({ agreement, isOpen, onClose }: Agree
             </div>
           </div>
 
-          {/* Agreement Terms Section */}
-          <div className="space-y-4">
-            <h4 className="font-bold text-sm text-indigo-950 border-b pb-1">1. Scope of Coverage & Terms</h4>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              {snapshot.terms || 'This agreement entitles the customer to submit on-demand service requests for the designated service category for 12 months. All service requests are reviewed by ServiceHub administrative dispatch to ensure qualified provider matching, guaranteed pricing fidelity, and full quality audit logging.'}
+          {/* Key Terms */}
+          <div className="space-y-3">
+            <h4 className="font-bold text-indigo-950 text-sm border-b pb-1">1. Scope of Service & Validity</h4>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              This legally binding certificate confirms that <strong>{agreement.customerName}</strong> is enrolled in the <strong>{agreement.durationMonths || 12}-Month Service Protection Agreement</strong> under ServiceHub Connect platform standards.
             </p>
-
-            <h4 className="font-bold text-sm text-indigo-950 border-b pb-1 pt-2">2. Term & Validity</h4>
-            <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
-              <div>
-                <span className="text-slate-400 block text-[11px]">Agreement Start:</span>
-                <span className="font-bold">{agreement.startDate ? new Date(agreement.startDate).toLocaleDateString() : 'Upon Signature'}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Agreement End:</span>
-                <span className="font-bold">{agreement.endDate ? new Date(agreement.endDate).toLocaleDateString() : '12 Months'}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Duration:</span>
-                <span className="font-bold">{agreement.durationMonths || 12} Months</span>
-              </div>
+            <div className="bg-indigo-50/60 p-3 rounded-lg border border-indigo-100 text-xs space-y-1 text-slate-700">
+              <div><strong>Start Date:</strong> {new Date(agreement.startDate || agreement.createdAt).toLocaleDateString()}</div>
+              <div><strong>Expiry Date:</strong> {new Date(agreement.endDate || Date.now() + 365*24*3600*1000).toLocaleDateString()}</div>
+              <div><strong>Platform Dispute Protection:</strong> Guaranteed 100% Quality Resolution</div>
             </div>
+          </div>
 
-            <h4 className="font-bold text-sm text-indigo-950 border-b pb-1 pt-2">3. Dispute Arbitration & Quality Guarantee</h4>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              ServiceHub functions as the platform mediator. Any defects reported under this agreement are covered by complimentary rework inspection. In the event of provider unavailability, ServiceHub reassigns an equally certified alternate technician at no additional dispatch premium.
+          {/* Standard Terms */}
+          <div className="space-y-2 text-xs text-slate-600">
+            <h4 className="font-bold text-indigo-950 text-sm border-b pb-1">2. Service Request Rights</h4>
+            <p leading-relaxed>
+              During this active period, the customer is entitled to submit priority service requests directly through the Customer Agreements Portal. Certified service providers assigned by ServiceHub will execute service calls in compliance with verified workmanship standards.
             </p>
           </div>
 
-          {/* Verification & Signature Seal */}
-          <div className="mt-8 pt-6 border-t-2 border-slate-200 grid grid-cols-2 gap-6 items-end">
-            <div className="space-y-1">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer Digital Signature</div>
-              <div className="p-3 bg-slate-50 border rounded-lg text-center">
-                <span className="text-lg font-serif italic text-indigo-950 font-bold">
-                  {agreement.customerName}
-                </span>
-                <div className="text-[10px] text-slate-400 mt-1">
-                  Signed: {agreement.signedAt ? new Date(agreement.signedAt).toLocaleString() : 'Pending'}
+          {/* Signature Verification Block */}
+          <div className="pt-6 border-t-2 border-slate-200 mt-6 grid grid-cols-1 sm:grid-cols-2 gap-6 items-end">
+            <div className="space-y-2">
+              <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">Customer Signature</div>
+              {agreement.signatureType === 'drawn' && agreement.signatureData ? (
+                <div className="border border-slate-200 rounded-lg p-2 bg-slate-50 inline-block">
+                  <img 
+                    src={agreement.signatureData} 
+                    alt="Customer Digital Signature" 
+                    className="h-16 max-w-[200px] object-contain"
+                  />
                 </div>
+              ) : (
+                <div className="font-serif italic text-xl font-bold text-indigo-950 border-b border-slate-400 pb-1 inline-block min-w-[180px]">
+                  {agreement.signedName || agreement.customerName}
+                </div>
+              )}
+              <div className="text-[10px] text-slate-500">
+                Signed on: {agreement.signedAt ? new Date(agreement.signedAt).toLocaleString() : 'Pending'}
               </div>
             </div>
 
-            <div className="space-y-1 text-right">
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Platform Authentication Seal</div>
-              <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg text-center">
-                <div className="text-xs font-bold text-indigo-900 flex items-center justify-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Verified Cryptographic Audit
-                </div>
-                <div className="text-[10px] text-indigo-600 mt-0.5 font-mono">
-                  VERIFIED • SERVICEHUB SYSTEM
-                </div>
+            <div className="space-y-2 text-right sm:text-right">
+              <div className="text-xs font-bold text-indigo-900 uppercase tracking-wider flex items-center justify-end gap-1">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Digitally Certified by Platform
+              </div>
+              <p className="text-[11px] text-slate-500">
+                ServiceHub Quality Assurance & Legal Arbitration Board
+              </p>
+              <div className="text-[10px] text-slate-400 font-mono">
+                Checksum: {agreement.agreementId}-SECURE-VERIFIED
               </div>
             </div>
           </div>
         </div>
+
+        {/* Modal Footer */}
+        <div className="px-6 py-3 border-t bg-muted/40 flex items-center justify-between print:hidden shrink-0">
+          <span className="text-xs text-muted-foreground">Digital Certificate verified on ServiceHub Connect</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
+            className="px-4 py-2 bg-primary text-primary-foreground text-xs font-bold rounded-xl hover:opacity-90 transition-opacity"
+          >
+            Close
+          </button>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -181,11 +181,12 @@ export default function NotificationBell() {
         document.body
       )}
 
-      {chatBookingId && (
+      {chatBookingId && createPortal(
         <BookingChatModal
           bookingId={chatBookingId}
           onClose={() => setChatBookingId(null)}
-        />
+        />,
+        document.body
       )}
     </div>
   );
