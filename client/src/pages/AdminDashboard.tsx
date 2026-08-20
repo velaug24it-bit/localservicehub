@@ -124,18 +124,18 @@ export default function AdminDashboard() {
     try {
       const newStatus = currentStatus === 'Paid' ? 'Unpaid' : 'Paid';
       const payload = type === 'provider' 
-        ? { providerStatus: newStatus } 
+        ? { providerStatus: newStatus, payoutStatus: newStatus } 
         : type === 'materials'
         ? { materialsStatus: newStatus }
-        : { payoutStatus: newStatus };
+        : { payoutStatus: newStatus, providerStatus: newStatus };
         
       await api.admin.payments.updateStatus(id, payload);
       toast({ title: 'Status Updated', description: `Marked as ${newStatus}` });
       setPayments(prev => prev.map(p => p.id === id ? { 
         ...p, 
-        paymentStatus: type === 'provider' ? newStatus : p.paymentStatus,
+        paymentStatus: type === 'provider' || type === 'payout' ? newStatus : p.paymentStatus,
         materialsPaymentStatus: type === 'materials' ? newStatus : (p.materialsPaymentStatus || 'Unpaid'),
-        payoutStatus: type === 'payout' ? newStatus : (p.payoutStatus || 'Unpaid')
+        payoutStatus: type === 'payout' || type === 'provider' ? newStatus : (p.payoutStatus || 'Unpaid')
       } : p));
       loadData();
     } catch (err: any) {
@@ -152,6 +152,7 @@ export default function AdminDashboard() {
         description: `Marked payout to ${record.providerName} as ${newStatus}`
       });
       setDailyPayouts(prev => prev.map(p => p.key === record.key ? { ...p, payoutStatus: newStatus } : p));
+      loadData();
     } catch (err: any) {
       toast({ title: 'Payout status update failed', description: err.message, variant: 'destructive' });
     }

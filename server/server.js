@@ -709,7 +709,7 @@ app.get('/api/providers/billing-status', auth, async (req, res) => {
     const bookings = await Booking.find({
       providerId: req.userId,
       status: 'Completed',
-      paymentStatus: 'Paid',
+      $or: [{ paymentStatus: 'Paid' }, { payoutStatus: 'Paid' }],
       createdAt: { $gte: user.lastActivationDate }
     });
 
@@ -1307,11 +1307,11 @@ app.post('/api/payments/create-reactivation-order', auth, async (req, res) => {
       return res.status(400).json({ error: 'Provider profile required' });
     }
 
-    // Calculate amount due (only counting bookings with completed paymentStatus: 'Paid')
+    // Calculate amount due (only counting bookings with completed paymentStatus: 'Paid' or payoutStatus: 'Paid')
     const bookings = await Booking.find({
       providerId: req.userId,
       status: 'Completed',
-      paymentStatus: 'Paid',
+      $or: [{ paymentStatus: 'Paid' }, { payoutStatus: 'Paid' }],
       createdAt: { $gte: user.lastActivationDate }
     });
 
@@ -1370,11 +1370,11 @@ app.post('/api/providers/reactivate', auth, async (req, res) => {
 
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = req.body;
 
-    // Re-calculate amount due to verify (only counting bookings with completed paymentStatus: 'Paid')
+    // Re-calculate amount due to verify (only counting bookings with completed paymentStatus: 'Paid' or payoutStatus: 'Paid')
     const bookings = await Booking.find({
       providerId: req.userId,
       status: 'Completed',
-      paymentStatus: 'Paid',
+      $or: [{ paymentStatus: 'Paid' }, { payoutStatus: 'Paid' }],
       createdAt: { $gte: user.lastActivationDate }
     });
 
@@ -1613,9 +1613,17 @@ app.put('/api/admin/payments/:id', auth, adminOnly, async (req, res) => {
     const booking = await Booking.findById(req.params.id);
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     
-    if (providerStatus) booking.paymentStatus = providerStatus;
+    if (providerStatus) {
+      booking.paymentStatus = providerStatus;
+      if (providerStatus === 'Paid') booking.payoutStatus = 'Paid';
+      else if (providerStatus === 'Unpaid') booking.payoutStatus = 'Unpaid';
+    }
     if (materialsStatus) booking.materialsPaymentStatus = materialsStatus;
-    if (payoutStatus) booking.payoutStatus = payoutStatus;
+    if (payoutStatus) {
+      booking.payoutStatus = payoutStatus;
+      if (payoutStatus === 'Paid') booking.paymentStatus = 'Paid';
+      else if (payoutStatus === 'Unpaid') booking.paymentStatus = 'Unpaid';
+    }
     
     await booking.save();
 
@@ -1664,7 +1672,7 @@ app.get('/api/admin/daily-payouts', auth, adminOnly, async (req, res) => {
           totalCollectedByWebsite: 0,
           platformRevenue: 0,
           netPayoutOwed: 0,
-          payoutStatus: b.payoutStatus || 'Unpaid',
+          payoutStatus: b.payoutStatus || b.paymentStatus || 'Unpaid',
           bookingCount: 0,
           bookingIds: []
         };
@@ -1683,7 +1691,7 @@ app.get('/api/admin/daily-payouts', auth, adminOnly, async (req, res) => {
       payoutsMap[key].netPayoutOwed += provEarnt;
       payoutsMap[key].bookingCount += 1;
       payoutsMap[key].bookingIds.push(b.id);
-      if (b.payoutStatus === 'Paid') {
+      if (b.payoutStatus === 'Paid' || b.paymentStatus === 'Paid') {
         payoutsMap[key].payoutStatus = 'Paid';
       }
     }
@@ -1703,12 +1711,14 @@ app.put('/api/admin/payouts/status', auth, adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'bookingIds[] and payoutStatus are required' });
     }
 
+    const newStatus = payoutStatus === 'Paid' ? 'Paid' : 'Unpaid';
+
     await Booking.updateMany(
       { _id: { $in: bookingIds } },
-      { $set: { payoutStatus } }
+      { $set: { payoutStatus: newStatus, paymentStatus: newStatus } }
     );
 
-    res.json({ success: true, count: bookingIds.length, payoutStatus });
+    res.json({ success: true, count: bookingIds.length, payoutStatus: newStatus });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

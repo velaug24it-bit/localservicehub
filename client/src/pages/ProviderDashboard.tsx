@@ -37,6 +37,8 @@ interface ProviderBooking {
   price: string;
   status: string;
   payment_status: string;
+  payout_status?: string;
+  materials_payment_status?: string;
   current_step: number;
   created_at: string;
   providerName?: string;
@@ -150,6 +152,8 @@ const ProviderDashboard = () => {
           price: b.price,
           status: b.status,
           payment_status: b.paymentStatus || 'Unpaid',
+          payout_status: b.payoutStatus || 'Unpaid',
+          materials_payment_status: b.materialsPaymentStatus || 'Unpaid',
           current_step: b.currentStep,
           created_at: b.createdAt,
           providerName: b.providerName,
@@ -474,11 +478,11 @@ const ProviderDashboard = () => {
 
 
   const totalEarnings = bookings
-    .filter(b => b.payment_status === 'Paid')
+    .filter(b => b.payment_status === 'Paid' || b.payout_status === 'Paid')
     .reduce((sum, b) => sum + getProviderLabourPrice(b), 0);
 
   const pendingPayment = bookings
-    .filter(b => b.status !== 'Cancelled' && b.payment_status !== 'Paid')
+    .filter(b => b.status !== 'Cancelled' && b.payment_status !== 'Paid' && b.payout_status !== 'Paid')
     .reduce((sum, b) => sum + getProviderLabourPrice(b), 0);
 
   const stats = {
@@ -1117,7 +1121,7 @@ const ProviderDashboard = () => {
 
             <div className="bg-card rounded-xl border border-border p-6">
               <h3 className="font-display font-semibold text-foreground mb-4">Labour Payment Settlement</h3>
-              {bookings.filter(b => b.status === 'Completed' || b.status === 'In Progress').length === 0 ? (
+              {bookings.filter(b => b.status !== 'Cancelled' && (b.status === 'Completed' || b.status === 'In Progress' || b.payment_status === 'Paid' || b.payout_status === 'Paid')).length === 0 ? (
                 <p className="text-muted-foreground text-sm">No labour payment records yet.</p>
               ) : (
                 <div className="overflow-x-auto">
@@ -1133,7 +1137,8 @@ const ProviderDashboard = () => {
                     </thead>
                     <tbody>
                       {bookings
-                        .filter(b => b.status === 'Completed' || b.status === 'In Progress')
+                        .filter(b => b.status !== 'Cancelled' && (b.status === 'Completed' || b.status === 'In Progress' || b.payment_status === 'Paid' || b.payout_status === 'Paid'))
+                        .sort((a, b) => new Date(b.date || b.created_at).getTime() - new Date(a.date || a.created_at).getTime())
                         .map(b => (
                           <tr key={b.id} className="border-b border-border last:border-0">
                             <td className="py-3 text-foreground">{b.customer_name}</td>
@@ -1142,9 +1147,9 @@ const ProviderDashboard = () => {
                             <td className="py-3 font-semibold text-foreground">₹{getProviderLabourPrice(b).toLocaleString()}</td>
                             <td className="py-3">
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                                b.payment_status === 'Paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
+                                b.payment_status === 'Paid' || b.payout_status === 'Paid' ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'
                               }`}>
-                                {b.payment_status === 'Paid' ? '✅ Paid' : '⏳ Pending'}
+                                {b.payment_status === 'Paid' || b.payout_status === 'Paid' ? '✅ Paid' : '⏳ Pending'}
                               </span>
                             </td>
                           </tr>
